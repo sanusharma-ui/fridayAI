@@ -206,7 +206,8 @@ export default function Home() {
       <Sidebar conversations={conversations} activeId={activeId} open={sidebarOpen} onClose={closeSidebar}
         onNew={startNewChat} onSelect={selectChat} onDelete={deleteChat} onRename={renameChat} />
 
-      <main className="main-content" inert={sidebarOpen}>
+      <main className={`main-content ${!activeConversation?.messages.length ? "is-welcome" : ""}`} inert={sidebarOpen}>
+        <div className="ambient-scene" aria-hidden="true"><div className="ambient-sun" /><div className="ambient-rings" /><div className="ambient-horizon" /></div>
         <header className="topbar">
           <div className="topbar-left">
             <button type="button" className="mobile-menu icon-btn" onClick={() => setSidebarOpen(true)} aria-label="Open sidebar" aria-expanded={sidebarOpen} aria-controls="conversation-sidebar"><Menu size={22} /></button>
@@ -228,19 +229,20 @@ export default function Home() {
             {!activeConversation?.messages.length ? (
               <div className="welcome-wrap">
                 <div className="welcome-content">
-                  <div className="welcome-mark"><div className="welcome-mark-inner"><FridayMark size={40} /></div><span className="welcome-orbit orbit-a" /><span className="welcome-orbit orbit-b" /></div>
-                  <div className="welcome-eyebrow"><span /> YOUR AI COMPANION <span /></div>
-                  <h1 className="welcome-title">Meet <span>FRIDAY<span className="welcome-title-dot">.</span></span></h1>
-                  <p className="welcome-description">A little less busywork. A lot more possibility.<br className="desktop-only" /> What&apos;s on your mind today?</p>
+                  <div className="welcome-eyebrow"><span /> A LITTLE SPACE TO THINK</div>
+                  <h1 className="welcome-title">What&apos;s on your mind?</h1>
+                  <p className="welcome-description">Start with a thought. We&apos;ll take it from here.</p>
+                  <div className="suggestions-label"><span>A FEW PLACES TO START</span><span>01 — 04</span></div>
                   <div className="starter-grid">
                     {EXAMPLES.map((item) => (
                       <button type="button" key={item.title} className="starter-card" onClick={() => void sendMessage(item.prompt)} disabled={pendingChatId !== null}>
-                        <div className="starter-card-top"><item.icon size={19} strokeWidth={1.8} /><ArrowRight size={15} className="starter-arrow" /></div>
-                        <strong>{item.title}</strong><span>{item.subtitle}</span>
+                        <span className="starter-icon"><item.icon size={18} strokeWidth={1.5} /></span>
+                        <span className="starter-copy"><strong>{item.title}</strong><span>{item.subtitle}</span></span>
+                        <ArrowRight size={14} className="starter-arrow" />
                       </button>
                     ))}
                   </div>
-                  <div className="welcome-footer"><ShieldCheck size={15} /> Your conversation history stays in this browser</div>
+                  <div className="welcome-footer"><ShieldCheck size={13} /> History saved in this browser</div>
                 </div>
               </div>
             ) : (

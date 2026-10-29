@@ -65,10 +65,10 @@ export function Sidebar({ conversations, activeId, open, onClose, onNew, onSelec
         <div className="sidebar-head">
           <div className="brand-row">
             <div className="brand-symbol"><FridayMark size={26} /></div>
-            <div className="brand-name">FRIDAY<span className="brand-dot">.</span></div>
+            <div className="brand-name">friday<span className="brand-dot">.</span></div>
             <button type="button" onClick={onClose} className="sidebar-close icon-btn" aria-label="Close menu"><ChevronLeft size={19} /></button>
           </div>
-          <div className="brand-caption">YOUR PERSONAL AI WORKSPACE</div>
+          <div className="brand-caption">A quieter kind of workspace.</div>
         </div>
 
         <div className="sidebar-actions">
