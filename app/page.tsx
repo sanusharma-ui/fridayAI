@@ -1,13 +1,13 @@
 "use client";
 
-import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
-  ArrowDown, ArrowRight, BrainCircuit, Check, ChevronDown, Code2, Copy,
-  Lightbulb, Menu, MessageCircle, Plus, Send, ShieldCheck, Sparkles,
-  Terminal, Wifi, WifiOff, X, Zap,
+  ArrowDown, ArrowRight, BrainCircuit, Check, Code2, Copy,
+  Lightbulb, Menu, ShieldCheck, Terminal, Wifi, WifiOff, X,
 } from "lucide-react";
 import { MarkdownMessage } from "@/components/markdown-message";
 import { Sidebar } from "@/components/sidebar";
+import { FridayMark } from "@/components/friday-mark";
 import { loadSavedState, saveActiveId, saveConversations } from "@/lib/storage";
 import type { BackendStatus, ChatMessage, Conversation } from "@/lib/types";
 
@@ -67,9 +67,17 @@ export default function Home() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const sendingRef = useRef(false);
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
   const activeConversation = conversations.find((c) => c.id === activeId) ?? null;
   const isPendingHere = pendingChatId !== null && pendingChatId === activeId;
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "0px";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`;
+  }, [draft]);
 
   useEffect(() => {
     const saved = loadSavedState();
@@ -195,13 +203,13 @@ export default function Home() {
 
   return (
     <div className="app-shell">
-      <Sidebar conversations={conversations} activeId={activeId} open={sidebarOpen} onClose={() => setSidebarOpen(false)}
+      <Sidebar conversations={conversations} activeId={activeId} open={sidebarOpen} onClose={closeSidebar}
         onNew={startNewChat} onSelect={selectChat} onDelete={deleteChat} onRename={renameChat} />
 
-      <main className="main-content">
+      <main className="main-content" inert={sidebarOpen}>
         <header className="topbar">
           <div className="topbar-left">
-            <button type="button" className="mobile-menu icon-btn" onClick={() => setSidebarOpen(true)} aria-label="Open sidebar"><Menu size={22} /></button>
+            <button type="button" className="mobile-menu icon-btn" onClick={() => setSidebarOpen(true)} aria-label="Open sidebar" aria-expanded={sidebarOpen} aria-controls="conversation-sidebar"><Menu size={22} /></button>
             <div className="header-breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><strong>{title}</strong></div>
           </div>
           <div className="topbar-right">
@@ -220,9 +228,9 @@ export default function Home() {
             {!activeConversation?.messages.length ? (
               <div className="welcome-wrap">
                 <div className="welcome-content">
-                  <div className="welcome-mark"><div className="welcome-mark-inner"><Zap size={32} strokeWidth={2.3} fill="currentColor" /></div><span className="welcome-orbit orbit-a" /><span className="welcome-orbit orbit-b" /></div>
+                  <div className="welcome-mark"><div className="welcome-mark-inner"><FridayMark size={40} /></div><span className="welcome-orbit orbit-a" /><span className="welcome-orbit orbit-b" /></div>
                   <div className="welcome-eyebrow"><span /> YOUR AI COMPANION <span /></div>
-                  <h1>Meet <span>Friday.</span></h1>
+                  <h1 className="welcome-title">Meet <span>FRIDAY<span className="welcome-title-dot">.</span></span></h1>
                   <p className="welcome-description">A little less busywork. A lot more possibility.<br className="desktop-only" /> What&apos;s on your mind today?</p>
                   <div className="starter-grid">
                     {EXAMPLES.map((item) => (
@@ -242,7 +250,7 @@ export default function Home() {
                   <div className={`message-row ${message.role === "user" ? "message-row-user" : "message-row-ai"}`} key={message.id}>
                     {message.role === "assistant" ? (
                       <>
-                        <div className="assistant-avatar"><Zap size={16} fill="currentColor" /></div>
+                        <div className="assistant-avatar"><FridayMark size={21} /></div>
                         <div className="message-content">
                           <div className="message-author"><strong>Friday</strong><span>{formatTime(message.createdAt)}</span></div>
                           <MarkdownMessage content={message.content} />
@@ -256,7 +264,7 @@ export default function Home() {
                 ))}
                 {isPendingHere && (
                   <div className="message-row message-row-ai" aria-live="polite">
-                    <div className="assistant-avatar"><Zap size={16} fill="currentColor" /></div>
+                    <div className="assistant-avatar"><FridayMark size={21} /></div>
                     <div className="message-content"><div className="message-author"><strong>Friday</strong><span>Thinking…</span></div><div className="typing-indicator"><i /><i /><i /></div></div>
                   </div>
                 )}
@@ -265,11 +273,11 @@ export default function Home() {
             )}
           </div>
 
-          {showScrollButton && activeConversation && (
-            <button type="button" className="scroll-bottom-btn" aria-label="Scroll to latest message" onClick={() => bottomRef.current?.scrollIntoView({ behavior: "smooth" })}><ArrowDown size={16} /></button>
-          )}
-
           <div className="composer-region">
+            {showScrollButton && activeConversation && (
+              <button type="button" className="scroll-bottom-btn" aria-label="Scroll to latest message" onClick={() => bottomRef.current?.scrollIntoView({ behavior: "smooth" })}><ArrowDown size={16} /></button>
+            )}
+
             <div className="composer-inner">
               {error && (
                 <div className="error-banner" role="alert">
@@ -281,16 +289,17 @@ export default function Home() {
                 </div>
               )}
               <form className="composer-card" onSubmit={onSubmit}>
-                <textarea ref={textareaRef} rows={2} maxLength={4000} value={draft}
-                  onChange={(e) => setDraft(e.target.value)} onKeyDown={onComposerKeyDown}
-                  placeholder="Ask Friday anything..." aria-label="Message Friday" disabled={pendingChatId !== null} />
+                <div className="composer-input-row">
+                  <textarea ref={textareaRef} rows={1} maxLength={4000} value={draft}
+                    onChange={(e) => setDraft(e.target.value)} onKeyDown={onComposerKeyDown}
+                    placeholder="Ask Friday anything..." aria-label="Message Friday" disabled={pendingChatId !== null} />
+                  <button type="submit" className="send-btn" aria-label="Send message" disabled={!draft.trim() || pendingChatId !== null}>
+                    {pendingChatId !== null ? <span className="loading-spin" /> : <ArrowRight size={20} strokeWidth={2.3} />}
+                  </button>
+                </div>
                 <div className="composer-bottom">
-                  <div className="composer-model"><span className="model-indicator" /><span>Qwen 2.5 · Colab</span><ChevronDown size={13} /></div>
-                  <div className="composer-controls"><span className="char-count">{draft.length > 3600 ? `${draft.length}/4000` : ""}</span><span className="composer-hint">Enter to send</span>
-                    <button type="submit" className="send-btn" aria-label="Send message" disabled={!draft.trim() || pendingChatId !== null}>
-                      {pendingChatId !== null ? <span className="loading-spin" /> : <ArrowRight size={20} strokeWidth={2.3} />}
-                    </button>
-                  </div>
+                  <div className="composer-model"><span className="model-indicator" /><span>Qwen 2.5 · Colab</span></div>
+                  <div className="composer-controls"><span className="char-count">{draft.length > 3600 ? `${draft.length}/4000` : ""}</span><span className="composer-hint">Enter to send · Shift + Enter for a new line</span></div>
                 </div>
               </form>
               <div className="composer-disclaimer">Friday can make mistakes. Double-check important information. <span>✦</span></div>

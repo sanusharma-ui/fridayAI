@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Check, ChevronLeft, Menu, MessageSquare, MoreHorizontal, Pencil, Plus, Search, Trash2, X, Zap } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Check, ChevronLeft, MessageSquare, MoreHorizontal, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { FridayMark } from "@/components/friday-mark";
 import type { Conversation } from "@/lib/types";
 
 interface SidebarProps {
@@ -20,6 +21,32 @@ export function Sidebar({ conversations, activeId, open, onClose, onNew, onSelec
   const [menuId, setMenuId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const sidebarRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const desktop = window.matchMedia("(min-width: 751px)");
+    const closeOnDesktop = () => { if (desktop.matches) onClose(); };
+    closeOnDesktop();
+    sidebarRef.current?.querySelector<HTMLButtonElement>(".sidebar-close")?.focus();
+    function handleKey(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") { event.preventDefault(); onClose(); }
+      if (event.key !== "Tab") return;
+      const elements = Array.from(sidebarRef.current?.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled)") ?? []).filter((el) => el.getClientRects().length > 0);
+      const first = elements[0];
+      const last = elements.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    }
+    document.addEventListener("keydown", handleKey);
+    desktop.addEventListener("change", closeOnDesktop);
+    return () => {
+      document.removeEventListener("keydown", handleKey);
+      desktop.removeEventListener("change", closeOnDesktop);
+      previous?.focus();
+    };
+  }, [open, onClose]);
 
   const filtered = [...conversations]
     .sort((a, b) => b.updatedAt - a.updatedAt)
@@ -34,11 +61,11 @@ export function Sidebar({ conversations, activeId, open, onClose, onNew, onSelec
   return (
     <>
       {open && <button type="button" aria-label="Close sidebar" className="sidebar-backdrop" onClick={onClose} />}
-      <aside className={`sidebar ${open ? "sidebar-open" : ""}`}>
+      <aside id="conversation-sidebar" ref={sidebarRef} aria-label="Conversation sidebar" className={`sidebar ${open ? "sidebar-open" : ""}`}>
         <div className="sidebar-head">
           <div className="brand-row">
-            <div className="brand-symbol"><Zap size={20} strokeWidth={2.4} fill="currentColor" /></div>
-            <div className="brand-name">friday<span className="brand-dot">.</span></div>
+            <div className="brand-symbol"><FridayMark size={26} /></div>
+            <div className="brand-name">FRIDAY<span className="brand-dot">.</span></div>
             <button type="button" onClick={onClose} className="sidebar-close icon-btn" aria-label="Close menu"><ChevronLeft size={19} /></button>
           </div>
           <div className="brand-caption">YOUR PERSONAL AI WORKSPACE</div>
