@@ -1,163 +1,64 @@
-import { NextResponse } from "next/server";
-import { extractTextFromPdf } from "@/lib/pdf";
+﻿import { NextResponse } from "next/server";
 import type { Attachment } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-interface ChatRequestBody {
-  message?: string;
-  attachments?: Attachment[];
-}
-
 export async function POST(request: Request) {
   const baseUrl = process.env.NGROK_BASE_URL?.trim();
   const apiKey = process.env.COLAB_API_KEY?.trim();
-
-  if (!baseUrl || !apiKey) {
-    return NextResponse.json(
-      { error: "Colab connection isn't configured. Check .env.local." },
-      { status: 503 }
-    );
-  }
-
+  if (!baseUrl || !apiKey) return NextResponse.json({ error: "Colab connection isn't configured. Check .env.local." }, { status: 503 });
   let endpoint: URL;
   try {
     endpoint = new URL(`${baseUrl.replace(/\/+$/, "")}/chat`);
-    if (endpoint.protocol !== "https:" && endpoint.hostname !== "localhost" && endpoint.hostname !== "127.0.0.1") {
-      throw new Error("Invalid URL protocol");
-    }
+    if (endpoint.protocol !== "https:" && endpoint.hostname !== "localhost" && endpoint.hostname !== "127.0.0.1") throw new Error("Invalid protocol");
   } catch {
     return NextResponse.json({ error: "Invalid NGROK_BASE_URL setting." }, { status: 503 });
   }
 
-  let userText = "";
-  let attachments: Attachment[] = [];
-
+  let message: string;
+  let attachments: Attachment[];
+  let history: { role: "user" | "assistant"; content: string }[];
   try {
-    const bodyText = await request.text();
-    // Allow up to 25MB for file attachments (images / base64)
-    if (bodyText.length > 25 * 1024 * 1024) {
-      return NextResponse.json({ error: "Payload is too large (max 25MB)." }, { status: 413 });
-    }
-
-    const body = JSON.parse(bodyText) as ChatRequestBody;
-    if (typeof body.message === "string") {
-      userText = body.message.trim();
-    }
-
-    if (Array.isArray(body.attachments)) {
-      attachments = body.attachments;
-    }
-
-    if (!userText && attachments.length === 0) {
-      return NextResponse.json({ error: "A message or attachment is required." }, { status: 400 });
+    const text = await request.text();
+    if (text.length > 25 * 1024 * 1024) return NextResponse.json({ error: "Attachments exceed the 25 MB request limit. Try smaller files." }, { status: 413 });
+    const body = JSON.parse(text);
+    message = typeof body.message === "string" ? body.message.trim() : "";
+    attachments = Array.isArray(body.attachments) ? body.attachments : [];
+    history = Array.isArray(body.history) ? body.history.slice(-12).filter((item: unknown) => {
+      if (!item || typeof item !== "object") return false;
+      const turn = item as { role?: unknown; content?: unknown };
+      return (turn.role === "user" || turn.role === "assistant") && typeof turn.content === "string" && turn.content.length <= 3000;
+    }) : [];
+    if (message.length > 4000 || attachments.length > 4) return NextResponse.json({ error: "Use a message under 4,000 characters and at most four attachments." }, { status: 400 });
+    if (!message && !attachments.length) return NextResponse.json({ error: "A message or attachment is required." }, { status: 400 });
+    if (attachments.some((a) => !a || typeof a.name !== "string" || typeof a.type !== "string" || typeof a.dataUrl !== "string" || !/^data:(image\/(png|jpeg|webp|gif)|application\/pdf);base64,/i.test(a.dataUrl))) {
+      return NextResponse.json({ error: "An attachment is unavailable or invalid. Please attach it again." }, { status: 400 });
     }
   } catch {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
-  // Extract text from any PDF attachments that don't have extracted text yet
-  for (const att of attachments) {
-    if (att.type === "application/pdf" && !att.extractedText && att.dataUrl) {
-      try {
-        const base64Index = att.dataUrl.indexOf("base64,");
-        if (base64Index !== -1) {
-          const rawBase64 = att.dataUrl.slice(base64Index + 7);
-          const buf = Buffer.from(rawBase64, "base64");
-          att.extractedText = await extractTextFromPdf(buf);
-        }
-      } catch (err) {
-        console.error("Failed to extract PDF text in API route:", err);
-      }
-    }
-  }
-
-  // Build the message to send to the backend model
-  let fullPrompt = "";
-
-  if (attachments.length > 0) {
-    const fileSummaries: string[] = [];
-    for (const att of attachments) {
-      if (att.type === "application/pdf") {
-        if (att.extractedText && att.extractedText.trim().length > 0) {
-          // Truncate cleanly if text is very long to prevent overflowing model token limits
-          const textPreview = att.extractedText.length > 2800
-            ? `${att.extractedText.slice(0, 2800)}…\n[Note: Document truncated to fit context]`
-            : att.extractedText;
-          fileSummaries.push(`[Attached PDF: "${att.name}"]\n--- Document Text ---\n${textPreview}\n--- End Document ---`);
-        } else {
-          fileSummaries.push(`[Attached PDF: "${att.name}" (${Math.round(att.size / 1024)} KB, no selectable text or scanned)]`);
-        }
-      } else if (att.type.startsWith("image/")) {
-        fileSummaries.push(`[Attached Image: "${att.name}" (${att.type}, ${Math.round(att.size / 1024)} KB)]`);
-      } else {
-        fileSummaries.push(`[Attached File: "${att.name}"]`);
-      }
-    }
-
-    const contextBlock = fileSummaries.join("\n\n");
-    const userPrompt = userText || "Please analyze and summarize the attached file(s).";
-    fullPrompt = `${contextBlock}\n\nUser Question/Instruction:\n${userPrompt}`;
-  } else {
-    fullPrompt = userText;
-  }
-
-  // Ensure prompt fits within safety bounds (safe for Colab 4000 limit while keeping maximum context)
-  if (fullPrompt.length > 3900) {
-    fullPrompt = `${fullPrompt.slice(0, 3880)}…\n[Context truncated]`;
-  }
-
   try {
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": apiKey,
-        "ngrok-skip-browser-warning": "true",
-      },
-      body: JSON.stringify({
-        message: fullPrompt,
-        attachments: attachments.map((a) => ({
-          name: a.name,
-          type: a.type,
-          size: a.size,
-          extracted_text: a.extractedText,
-        })),
-      }),
-      signal: AbortSignal.timeout(120_000),
+      headers: { "Content-Type": "application/json", "X-API-Key": apiKey, "ngrok-skip-browser-warning": "true" },
+      body: JSON.stringify({ message: message || "Please analyze the attached files.", history, attachments: attachments.map(({ name, type, dataUrl }) => ({ name, type, data_url: dataUrl })) }),
+      signal: AbortSignal.timeout(180_000),
       cache: "no-store",
     });
-
     if (!response.ok) {
-      return NextResponse.json(
-        { error: response.status === 401 ? "Colab API key was rejected." : `Colab service returned HTTP ${response.status}.` },
-        { status: 502 }
-      );
+      let detail = "";
+      try { const data = await response.json(); if (typeof data.detail === "string") detail = data.detail; } catch { /* Non-JSON upstream error. */ }
+      return NextResponse.json({ error: response.status === 401 ? "Colab API key was rejected." : detail || `Colab service returned HTTP ${response.status}.` }, { status: 502 });
     }
-
     const data: unknown = await response.json();
-    if (
-      !data ||
-      typeof data !== "object" ||
-      !("response" in data) ||
-      typeof (data as { response: unknown }).response !== "string"
-    ) {
-      return NextResponse.json({ error: "Unexpected Colab response format." }, { status: 502 });
-    }
-
-    return NextResponse.json({
-      response: (data as { response: string }).response,
-      extractedTexts: attachments.reduce<Record<string, string>>((acc, att) => {
-        if (att.extractedText) acc[att.id] = att.extractedText;
-        return acc;
-      }, {}),
-    });
+    if (!data || typeof data !== "object" || !("response" in data) || typeof (data as { response: unknown }).response !== "string") return NextResponse.json({ error: "Unexpected Colab response format." }, { status: 502 });
+    const result = data as { response: string; notices?: unknown; protocol?: number };
+    if (result.protocol !== 2) return NextResponse.json({ error: "Your Colab backend is outdated. Run the updated Friday notebook and reconnect." }, { status: 502 });
+    return NextResponse.json({ response: result.response, notices: Array.isArray(result.notices) ? result.notices.filter((n): n is string => typeof n === "string") : [] });
   } catch (error) {
     const timeout = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
-    return NextResponse.json(
-      { error: timeout ? "Model request timed out. Try a shorter prompt or smaller file." : "Cannot reach Colab. Check the running notebook and Ngrok URL." },
-      { status: 502 }
-    );
+    return NextResponse.json({ error: timeout ? "Model request timed out. Try a shorter prompt or smaller file." : "Cannot reach Colab. Check the running notebook and Ngrok URL." }, { status: 502 });
   }
 }

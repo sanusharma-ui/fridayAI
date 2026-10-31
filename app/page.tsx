@@ -315,7 +315,14 @@ export default function Home() {
     sendingRef.current = true;
     setError(null);
 
-    const userMessageId = newId();
+    const userMessageId = retry ? activeConversation?.messages.at(-1)?.id ?? newId() : newId();
+    const priorMessages = activeConversation?.messages ?? [];
+    const history = (retry ? priorMessages.slice(0, -1) : priorMessages)
+      .slice(-12)
+      .map(({ role, content }) => ({ role, content: content.slice(0, 3000) }));
+    // Reuse the most recently attached files for follow-up questions in this chat.
+    const previousFiles = [...priorMessages].reverse().find((m) => m.attachments?.length)?.attachments ?? [];
+    const contextAttachments = currentAttachments.length ? currentAttachments : previousFiles;
     let targetId = activeId;
 
     if (!retry) {
@@ -358,7 +365,8 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: content,
-          attachments: currentAttachments,
+          attachments: contextAttachments,
+          history,
         }),
       });
 
@@ -366,6 +374,7 @@ export default function Home() {
         response?: string;
         error?: string;
         extractedTexts?: Record<string, string>;
+        notices?: string[];
       } = await response.json();
 
       if (!response.ok || typeof result.response !== "string") {
@@ -397,7 +406,9 @@ export default function Home() {
       const reply: ChatMessage = {
         id: newId(),
         role: "assistant",
-        content: result.response,
+        content: result.notices?.length
+          ? `${result.notices.map((notice) => `> ${notice}`).join("\n\n")}\n\n${result.response}`
+          : result.response,
         createdAt: Date.now(),
       };
 
@@ -411,7 +422,6 @@ export default function Home() {
       setBackendStatus("online");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
-      setBackendStatus("offline");
     } finally {
       sendingRef.current = false;
       setPendingChatId(null);
