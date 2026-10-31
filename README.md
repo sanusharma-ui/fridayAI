@@ -38,6 +38,9 @@ Visit **http://localhost:3000**.
 
 - Responsive desktop/mobile dark UI; collapsible mobile sidebar
 - Multiple conversations, rename, delete, local search
+- File and media uploads: attach PDFs and images directly from the message box via paperclip button, drag & drop, or clipboard paste (`Ctrl+V`)
+- High-fidelity image previews and full-screen lightbox modal with download
+- PDF document viewer cards and automatic text extraction
 - Chat history saved with browser `localStorage`
 - Markdown + code blocks with copy buttons
 - Loading feedback, retry option and connection status (`GET /health`)

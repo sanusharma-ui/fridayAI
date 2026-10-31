@@ -1440,3 +1440,477 @@ textarea:focus-visible {
     transition: none !important;
   }
 }
+
+/* ==========================================================================
+   File & Media Attachments (PDFs & Images)
+   ========================================================================== */
+
+/* Composer drag & drop state */
+.composer-card {
+  position: relative;
+}
+.composer-card.is-dragging {
+  border-color: var(--accent) !important;
+  background: #252b22 !important;
+  box-shadow: 0 0 0 3px rgba(217, 180, 141, 0.2), 0 8px 35px #0004 !important;
+}
+.composer-drop-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(28, 33, 26, 0.94);
+  backdrop-filter: blur(4px);
+  border: 2px dashed var(--accent);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  z-index: 10;
+  pointer-events: none;
+  animation: dropOverlayFadeIn 0.15s ease-out;
+}
+@keyframes dropOverlayFadeIn {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* Attach Button */
+.composer-attach-btn {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  background: #252b22;
+  color: #aeb5a2;
+  border: 1px solid #aab59424;
+  border-radius: 7px;
+  transition: all 0.2s ease;
+}
+.composer-attach-btn:hover:not(:disabled) {
+  background: #31382c;
+  color: #e5e8dc;
+  border-color: #aab59445;
+  transform: translateY(-1px);
+}
+.composer-attach-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Composer Attachment Chips Row */
+.composer-attachments-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 4px 10px;
+  border-bottom: 1px solid #a3ad901a;
+  margin-bottom: 8px;
+}
+.composer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #242921;
+  border: 1px solid #a3ad9033;
+  border-radius: 8px;
+  padding: 4px 8px 4px 6px;
+  max-width: 260px;
+  min-width: 140px;
+  box-shadow: 0 2px 8px #0002;
+  transition: border-color 0.15s ease;
+}
+.composer-chip:hover {
+  border-color: #a3ad9066;
+}
+.chip-thumb-wrap {
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: #191c18;
+  flex-shrink: 0;
+  border: 1px solid #ffffff12;
+}
+.chip-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.chip-icon-wrap {
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  background: #3a2222;
+  border: 1px solid #ff7b7b33;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: #ff9d9d;
+}
+.chip-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.chip-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: #e2e5d9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chip-size {
+  font-size: 9px;
+  color: #929988;
+}
+.chip-remove {
+  border: 0;
+  background: transparent;
+  color: #8c9382;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+.chip-remove:hover {
+  background: #384033;
+  color: #ffb4b4;
+}
+
+/* Processing indicator */
+.composer-processing-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--accent);
+  background: #252820;
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+/* Message Attachments in Stream */
+.msg-attachments-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 480px;
+}
+.user-message-group .msg-attachments-container {
+  align-items: flex-end;
+}
+
+/* Message Image Card */
+.msg-image-card {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #aab59422;
+  background: #1b1e19;
+  box-shadow: 0 4px 18px #0003;
+  max-width: 320px;
+  width: 100%;
+}
+.msg-image-btn {
+  display: block;
+  position: relative;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: #131612;
+  cursor: pointer;
+  overflow: hidden;
+}
+.msg-image-preview {
+  width: 100%;
+  max-height: 240px;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.25s ease;
+}
+.msg-image-btn:hover .msg-image-preview {
+  transform: scale(1.02);
+}
+.msg-image-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(16, 20, 15, 0.45);
+  backdrop-filter: blur(2px);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+}
+.msg-image-btn:hover .msg-image-overlay {
+  opacity: 1;
+}
+.msg-image-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 11px;
+  background: #20241e;
+  border-top: 1px solid #ffffff0a;
+}
+.msg-att-name {
+  color: #dce0d4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.msg-att-size {
+  color: #8c9483;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+/* Message PDF Card */
+.msg-pdf-card {
+  width: 100%;
+  background: #1f231c;
+  border: 1px solid #aab59424;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 4px 18px #0003;
+}
+.msg-pdf-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+}
+.msg-pdf-icon-box {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #442424, #2a1616);
+  border: 1px solid #e05e5e40;
+  color: #ff9191;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  gap: 1px;
+}
+.msg-pdf-icon-box .pdf-tag {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  line-height: 1;
+}
+.msg-pdf-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.msg-pdf-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #e4e7db;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.msg-pdf-size {
+  font-size: 10px;
+  color: #929988;
+}
+.msg-pdf-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.msg-pdf-action-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  color: #aeb5a2;
+  background: #282e23;
+  border: 1px solid #aab59420;
+  transition: all 0.15s ease;
+  text-decoration: none;
+}
+.msg-pdf-action-btn:hover {
+  background: #353d2f;
+  color: #fff;
+  border-color: #aab59445;
+}
+
+/* PDF Extracted Text Preview Dropdown */
+.msg-pdf-extracted-box {
+  border-top: 1px solid #aab59415;
+  background: #191c17;
+}
+.msg-pdf-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: transparent;
+  border: 0;
+  font-size: 10px;
+  color: #9aa190;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.msg-pdf-toggle:hover {
+  color: #e0e5d6;
+}
+.msg-pdf-text-content {
+  padding: 8px 12px 10px;
+  border-top: 1px dashed #ffffff0e;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.msg-pdf-text-content pre {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #cbd2c0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Lightbox Modal */
+.lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(10, 12, 10, 0.85);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: lightboxFadeIn 0.2s ease-out;
+}
+@keyframes lightboxFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.lightbox-content {
+  position: relative;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: #181b16;
+  border: 1px solid #aab59430;
+  border-radius: 12px;
+  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+.lightbox-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 16px;
+  background: #1d211b;
+  border-bottom: 1px solid #ffffff0d;
+}
+.lightbox-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.lightbox-filename {
+  font-size: 13px;
+  font-weight: 500;
+  color: #e4e7db;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 360px;
+}
+.lightbox-filesize {
+  font-size: 11px;
+  color: #8f9686;
+  flex-shrink: 0;
+}
+.lightbox-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lightbox-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  background: #252a22;
+  color: #bac1b1;
+  border: 1px solid #ffffff12;
+  transition: all 0.15s ease;
+  text-decoration: none;
+}
+.lightbox-btn:hover {
+  background: #32392c;
+  color: #fff;
+  border-color: #aab59445;
+}
+.lightbox-media-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: #10120f;
+  overflow: auto;
+  max-height: calc(90vh - 60px);
+}
+.lightbox-img {
+  max-width: 100%;
+  max-height: calc(90vh - 84px);
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 4px 20px #0004;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 600px) {
+  .composer-chip {
+    max-width: 100%;
+    width: 100%;
+  }
+  .msg-image-card,
+  .msg-pdf-card {
+    max-width: 100%;
+  }
+  .lightbox-content {
+    max-width: 96vw;
+    max-height: 94vh;
+  }
+  .lightbox-filename {
+    max-width: 180px;
+  }
+}

@@ -1,10 +1,20 @@
 export type Role = "user" | "assistant";
 
+export interface Attachment {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  dataUrl: string;
+  extractedText?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: Role;
   content: string;
   createdAt: number;
+  attachments?: Attachment[];
 }
 
 export interface Conversation {
