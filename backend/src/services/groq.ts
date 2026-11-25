@@ -7,17 +7,30 @@ import {
   GROQ_BASE_URL,
   SERVER_FALLBACK_GROQ_KEY,
 } from "../config.js";
-import type { ConversationTurn, GroqModelOption } from "../types.js";
+import type {
+  AgentLoopMessage,
+  ConversationTurn,
+  GroqModelOption,
+  ToolCallItem,
+} from "../types.js";
+import { FRIDAY_TOOLS } from "./toolsSchema.js";
 
 export class GroqApiError extends Error {
   status: number;
   code: string;
+  failedGeneration?: string;
 
-  constructor(message: string, status = 502, code = "GROQ_ERROR") {
+  constructor(
+    message: string,
+    status = 502,
+    code = "GROQ_ERROR",
+    failedGeneration?: string
+  ) {
     super(message);
     this.name = "GroqApiError";
     this.status = status;
     this.code = code;
+    this.failedGeneration = failedGeneration;
   }
 }
 
@@ -129,7 +142,12 @@ export async function fetchGroqModels(apiKey: string): Promise<GroqModelOption[]
 
   const rawList = Array.isArray(payload.data) ? payload.data : [];
   const mapped: GroqModelOption[] = rawList
-    .filter((item) => typeof item.id === "string" && item.active !== false && isChatCapableModel(item.id))
+    .filter(
+      (item) =>
+        typeof item.id === "string" &&
+        item.active !== false &&
+        isChatCapableModel(item.id)
+    )
     .map((item) => {
       const id = item.id!;
       const curated = CURATED_GROQ_MODELS.find((c) => c.id === id);
@@ -167,11 +185,54 @@ function stripReasoningBlocks(raw: string): { cleanText: string; reasoning?: str
   };
 }
 
+/**
+ * Recovers structured tool calls if a Llama model occasionally emits `<function=name>{...}</function>`
+ * and triggers Groq's `tool_use_failed` 400 error.
+ */
+function recoverFailedToolGeneration(failedGen?: string): ToolCallItem[] {
+  if (!failedGen) return [];
+  const recovered: ToolCallItem[] = [];
+  const fnRegex = /<function=([a-zA-Z0-9_]+)(?:>|\s)\s*(\{[\s\S]*?\})\s*<\/function>/g;
+  let match: RegExpExecArray | null;
+  let idx = 0;
+
+  while ((match = fnRegex.exec(failedGen)) !== null) {
+    const name = match[1];
+    const rawArgs = match[2];
+    try {
+      const parsed = JSON.parse(rawArgs) as Record<string, unknown>;
+      recovered.push({
+        id: `call_recovered_${Date.now()}_${idx++}`,
+        name,
+        arguments: parsed,
+        rawArguments: rawArgs,
+      });
+    } catch {
+      // Ignore unparseable fragment
+    }
+  }
+  return recovered;
+}
+
+function safeParseToolArgs(rawArgs: string): Record<string, unknown> {
+  const trimmed = rawArgs.trim();
+  if (!trimmed) return {};
+  try {
+    const parsed = JSON.parse(trimmed);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 function buildMessagesPayload(params: {
   userMessage: string;
   history: ConversationTurn[];
   imageDataUrls: string[];
   contextSections: string[];
+  agentMessages?: AgentLoopMessage[];
   requestedModel?: string;
   requestedVisionModel?: string;
 }): { chosenModel: string; hasImages: boolean; messages: unknown[] } {
@@ -180,6 +241,7 @@ function buildMessagesPayload(params: {
     history,
     imageDataUrls,
     contextSections,
+    agentMessages,
     requestedModel,
     requestedVisionModel,
   } = params;
@@ -214,11 +276,16 @@ function buildMessagesPayload(params: {
     messages.push({ role: "user", content: combinedText });
   }
 
+  if (Array.isArray(agentMessages) && agentMessages.length > 0) {
+    messages.push(...agentMessages);
+  }
+
   return { chosenModel, hasImages, messages };
 }
 
 function isModelFallbackCandidateError(err: unknown): err is GroqApiError {
   if (!(err instanceof GroqApiError) || err.status !== 400) return false;
+  if (err.code === "tool_use_failed") return false;
   const lower = err.message.toLowerCase();
   return (
     lower.includes("model") ||
@@ -236,11 +303,15 @@ async function parseFailedGroqResponse(res: Response): Promise<GroqApiError> {
     data = null;
   }
 
-  const upstreamMsg =
-    (data as { error?: { message?: string; code?: string } } | null)?.error?.message ||
-    `Groq API returned HTTP ${res.status}.`;
-  const upstreamCode =
-    (data as { error?: { code?: string } } | null)?.error?.code || "GROQ_ERROR";
+  const errObj = (
+    data as {
+      error?: { message?: string; code?: string; failed_generation?: string };
+    } | null
+  )?.error;
+
+  const upstreamMsg = errObj?.message || `Groq API returned HTTP ${res.status}.`;
+  const upstreamCode = errObj?.code || "GROQ_ERROR";
+  const failedGeneration = errObj?.failed_generation;
 
   if (res.status === 401 || res.status === 403) {
     return new GroqApiError(
@@ -260,7 +331,8 @@ async function parseFailedGroqResponse(res: Response): Promise<GroqApiError> {
   return new GroqApiError(
     upstreamMsg,
     res.status >= 400 && res.status < 500 ? 400 : 502,
-    upstreamCode
+    upstreamCode,
+    failedGeneration
   );
 }
 
@@ -270,6 +342,8 @@ export interface GenerateGroqReplyParams {
   history: ConversationTurn[];
   imageDataUrls: string[];
   contextSections: string[];
+  agentMessages?: AgentLoopMessage[];
+  enableTools?: boolean;
   requestedModel?: string;
   requestedVisionModel?: string;
 }
@@ -277,6 +351,7 @@ export interface GenerateGroqReplyParams {
 export interface GenerateGroqReplyResult {
   response: string;
   reasoning?: string;
+  toolCalls?: ToolCallItem[];
   modelUsed: string;
   notices: string[];
 }
@@ -284,8 +359,25 @@ export interface GenerateGroqReplyResult {
 async function callGroqChatCompletions(
   apiKey: string,
   model: string,
-  messages: unknown[]
-): Promise<{ content: string; reasoning?: string; modelUsed: string }> {
+  messages: unknown[],
+  useTools: boolean
+): Promise<{
+  content: string;
+  reasoning?: string;
+  toolCalls: ToolCallItem[];
+  modelUsed: string;
+}> {
+  const payload: Record<string, unknown> = {
+    model,
+    messages,
+    temperature: 0.5,
+    max_completion_tokens: 4096,
+  };
+  if (useTools) {
+    payload.tools = FRIDAY_TOOLS;
+    payload.tool_choice = "auto";
+  }
+
   let res: Response;
   try {
     res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
@@ -294,12 +386,7 @@ async function callGroqChatCompletions(
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: 0.6,
-        max_completion_tokens: 4096,
-      }),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(90_000),
     });
   } catch (err) {
@@ -315,25 +402,53 @@ async function callGroqChatCompletions(
   }
 
   if (!res.ok) {
-    throw await parseFailedGroqResponse(res);
+    const parsedErr = await parseFailedGroqResponse(res);
+    if (parsedErr.code === "tool_use_failed") {
+      const recovered = recoverFailedToolGeneration(parsedErr.failedGeneration);
+      if (recovered.length > 0) {
+        return { content: "", toolCalls: recovered, modelUsed: model };
+      }
+    }
+    throw parsedErr;
   }
 
   const data = (await res.json()) as {
     choices?: Array<{
-      message?: { content?: string; reasoning?: string };
+      message?: {
+        content?: string | null;
+        reasoning?: string | null;
+        tool_calls?: Array<{
+          id?: string;
+          function?: { name?: string; arguments?: string };
+        }>;
+      };
     }>;
     model?: string;
   };
 
   const msg = data?.choices?.[0]?.message;
+  const rawToolCalls = Array.isArray(msg?.tool_calls) ? msg!.tool_calls : [];
+  const toolCalls: ToolCallItem[] = rawToolCalls
+    .filter((tc) => Boolean(tc?.function?.name))
+    .map((tc, idx) => {
+      const rawArgs = tc.function?.arguments || "{}";
+      return {
+        id: tc.id || `call_${Date.now()}_${idx}`,
+        name: tc.function!.name!,
+        arguments: safeParseToolArgs(rawArgs),
+        rawArguments: rawArgs,
+      };
+    });
+
   const content = msg?.content || "";
-  if (!content.trim()) {
+  if (!content.trim() && toolCalls.length === 0) {
     throw new GroqApiError("Groq returned an empty response.", 502, "EMPTY_RESPONSE");
   }
 
   return {
     content,
     reasoning: typeof msg?.reasoning === "string" ? msg.reasoning : undefined,
+    toolCalls,
     modelUsed: data?.model || model,
   };
 }
@@ -343,17 +458,20 @@ export async function generateGroqReply(
 ): Promise<GenerateGroqReplyResult> {
   const notices: string[] = [];
   const { chosenModel, hasImages, messages } = buildMessagesPayload(params);
+  const useTools = params.enableTools !== false && !hasImages;
 
   try {
-    const { content, reasoning: apiReasoning, modelUsed } = await callGroqChatCompletions(
-      params.apiKey,
-      chosenModel,
-      messages
-    );
+    const {
+      content,
+      reasoning: apiReasoning,
+      toolCalls,
+      modelUsed,
+    } = await callGroqChatCompletions(params.apiKey, chosenModel, messages, useTools);
     const { cleanText, reasoning: tagReasoning } = stripReasoningBlocks(content);
     return {
       response: cleanText,
       reasoning: apiReasoning || tagReasoning,
+      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       modelUsed,
       notices,
     };
@@ -366,16 +484,23 @@ export async function generateGroqReply(
           liveModels.find((m) => m.id !== chosenModel)?.id;
 
       if (fallbackCandidate) {
-        const { content, reasoning: apiReasoning, modelUsed } = await callGroqChatCompletions(
+        const {
+          content,
+          reasoning: apiReasoning,
+          toolCalls,
+          modelUsed,
+        } = await callGroqChatCompletions(
           params.apiKey,
           fallbackCandidate,
-          messages
+          messages,
+          useTools
         );
         notices.push(`Switched automatically to active Groq model: ${modelUsed}`);
         const { cleanText, reasoning: tagReasoning } = stripReasoningBlocks(content);
         return {
           response: cleanText,
           reasoning: apiReasoning || tagReasoning,
+          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
           modelUsed,
           notices,
         };
@@ -385,10 +510,6 @@ export async function generateGroqReply(
   }
 }
 
-/**
- * State machine that separates inline `<think>...</think>` blocks from main content
- * safely across arbitrary token boundaries during SSE streaming.
- */
 class ThinkTagStreamFilter {
   private inThink = false;
   private carry = "";
@@ -429,7 +550,6 @@ class ThinkTagStreamFilter {
           buf = buf.slice(openIdx + 7);
           continue;
         }
-        // Hold back a potential partial `<think>` prefix at the very end
         const partialIdx = this.findPartialSuffix(buf, "<think>");
         if (partialIdx !== -1) {
           this.emitContent(buf.slice(0, partialIdx));
@@ -491,12 +611,26 @@ async function openGroqStreamResponse(
   apiKey: string,
   model: string,
   messages: unknown[],
+  useTools: boolean,
+  temperature = 0.5,
   signal?: AbortSignal
 ): Promise<Response> {
   const timeoutSignal = AbortSignal.timeout(95_000);
   const combinedSignal = signal
     ? AbortSignal.any([signal, timeoutSignal])
     : timeoutSignal;
+
+  const payload: Record<string, unknown> = {
+    model,
+    messages,
+    temperature,
+    max_completion_tokens: 4096,
+    stream: true,
+  };
+  if (useTools) {
+    payload.tools = FRIDAY_TOOLS;
+    payload.tool_choice = "auto";
+  }
 
   let res: Response;
   try {
@@ -506,13 +640,7 @@ async function openGroqStreamResponse(
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: 0.6,
-        max_completion_tokens: 4096,
-        stream: true,
-      }),
+      body: JSON.stringify(payload),
       signal: combinedSignal,
     });
   } catch (err) {
@@ -541,20 +669,82 @@ async function openGroqStreamResponse(
   return res;
 }
 
+export interface StreamGroqResult {
+  modelUsed: string;
+  assistantContent: string;
+  toolCalls: ToolCallItem[];
+}
+
 export async function streamGroqReply(
   params: GenerateGroqReplyParams,
   callbacks: StreamGroqCallbacks,
   signal?: AbortSignal
-): Promise<{ modelUsed: string }> {
+): Promise<StreamGroqResult> {
   const { chosenModel, hasImages, messages } = buildMessagesPayload(params);
+  // Enable native tool calling when not doing pure image-vision (or if vision model supports tools, fallback cleanly)
+  let useTools = params.enableTools !== false && !hasImages;
 
   let res: Response;
   let activeModel = chosenModel;
 
   try {
-    res = await openGroqStreamResponse(params.apiKey, activeModel, messages, signal);
+    res = await openGroqStreamResponse(
+      params.apiKey,
+      activeModel,
+      messages,
+      useTools,
+      0.5,
+      signal
+    );
   } catch (err) {
-    if (isModelFallbackCandidateError(err)) {
+    // Handle Llama's occasional `tool_use_failed` by recovering tool call or retrying at temp 0.1
+    if (err instanceof GroqApiError && err.code === "tool_use_failed") {
+      const recovered = recoverFailedToolGeneration(err.failedGeneration);
+      if (recovered.length > 0) {
+        return {
+          modelUsed: activeModel,
+          assistantContent: "",
+          toolCalls: recovered,
+        };
+      }
+      res = await openGroqStreamResponse(
+        params.apiKey,
+        DEFAULT_TEXT_MODEL,
+        messages,
+        useTools,
+        0.1,
+        signal
+      );
+      activeModel = DEFAULT_TEXT_MODEL;
+    } else if (
+      err instanceof GroqApiError &&
+      err.status === 400 &&
+      useTools &&
+      err.message.toLowerCase().includes("tool")
+    ) {
+      // Selected model doesn't support tools — fallback to default text model with tools or disable tools
+      if (activeModel !== DEFAULT_TEXT_MODEL) {
+        activeModel = DEFAULT_TEXT_MODEL;
+        res = await openGroqStreamResponse(
+          params.apiKey,
+          activeModel,
+          messages,
+          true,
+          0.4,
+          signal
+        );
+      } else {
+        useTools = false;
+        res = await openGroqStreamResponse(
+          params.apiKey,
+          activeModel,
+          messages,
+          false,
+          0.5,
+          signal
+        );
+      }
+    } else if (isModelFallbackCandidateError(err)) {
       const liveModels = await fetchGroqModels(params.apiKey);
       const fallbackCandidate = hasImages
         ? liveModels.find((m) => m.supportsVision && m.id !== activeModel)?.id
@@ -563,7 +753,14 @@ export async function streamGroqReply(
 
       if (fallbackCandidate) {
         activeModel = fallbackCandidate;
-        res = await openGroqStreamResponse(params.apiKey, activeModel, messages, signal);
+        res = await openGroqStreamResponse(
+          params.apiKey,
+          activeModel,
+          messages,
+          useTools,
+          0.5,
+          signal
+        );
         callbacks.onNotice?.(`Switched automatically to active Groq model: ${activeModel}`);
       } else {
         throw err;
@@ -575,13 +772,50 @@ export async function streamGroqReply(
 
   const reader = res.body!.getReader();
   const decoder = new TextDecoder("utf-8");
+
+  let fullAssistantContent = "";
   const filter = new ThinkTagStreamFilter(
-    callbacks.onContentDelta,
+    (delta) => {
+      fullAssistantContent += delta;
+      callbacks.onContentDelta(delta);
+    },
     callbacks.onReasoningDelta
   );
 
+  // Accumulate streamed OpenAI tool_calls deltas by index
+  const toolCallsAcc = new Map<
+    number,
+    { id: string; name: string; argsText: string }
+  >();
+
   let sseBuffer = "";
   let modelUsed = activeModel;
+
+  const finalizeToolCalls = (): ToolCallItem[] => {
+    const sortedIndices = Array.from(toolCallsAcc.keys()).sort((a, b) => a - b);
+    const items: ToolCallItem[] = [];
+    for (const idx of sortedIndices) {
+      const entry = toolCallsAcc.get(idx)!;
+      if (!entry.name) continue;
+      const rawArgs = entry.argsText.trim() || "{}";
+      items.push({
+        id: entry.id || `call_${Date.now()}_${idx}`,
+        name: entry.name,
+        arguments: safeParseToolArgs(rawArgs),
+        rawArguments: rawArgs,
+      });
+    }
+
+    // Fallback check if a model wrote `<function=...>` inside content instead of delta.tool_calls
+    if (items.length === 0 && fullAssistantContent.includes("<function=")) {
+      const recovered = recoverFailedToolGeneration(fullAssistantContent);
+      if (recovered.length > 0) {
+        return recovered;
+      }
+    }
+
+    return items;
+  };
 
   try {
     while (true) {
@@ -599,19 +833,52 @@ export async function streamGroqReply(
         const dataPayload = line.slice(5).trim();
         if (dataPayload === "[DONE]") {
           filter.flush();
-          return { modelUsed };
+          return {
+            modelUsed,
+            assistantContent: fullAssistantContent,
+            toolCalls: finalizeToolCalls(),
+          };
         }
 
         try {
           const parsed = JSON.parse(dataPayload) as {
             model?: string;
+            error?: { message?: string; code?: string; failed_generation?: string };
             choices?: Array<{
               delta?: {
                 content?: string | null;
                 reasoning?: string | null;
+                tool_calls?: Array<{
+                  index?: number;
+                  id?: string;
+                  function?: {
+                    name?: string;
+                    arguments?: string;
+                  };
+                }>;
               };
             }>;
           };
+
+          if (parsed.error) {
+            if (parsed.error.code === "tool_use_failed") {
+              const recovered = recoverFailedToolGeneration(
+                parsed.error.failed_generation
+              );
+              if (recovered.length > 0) {
+                return {
+                  modelUsed,
+                  assistantContent: fullAssistantContent,
+                  toolCalls: recovered,
+                };
+              }
+            }
+            throw new GroqApiError(
+              parsed.error.message || "Groq stream error.",
+              400,
+              parsed.error.code || "STREAM_ERROR"
+            );
+          }
 
           if (parsed.model) {
             modelUsed = parsed.model;
@@ -624,8 +891,25 @@ export async function streamGroqReply(
           if (delta?.content) {
             filter.push(delta.content);
           }
-        } catch {
-          // Ignore malformed partial comment/keepalive lines
+          if (Array.isArray(delta?.tool_calls)) {
+            for (const tc of delta.tool_calls) {
+              const idx = typeof tc.index === "number" ? tc.index : 0;
+              const existing = toolCallsAcc.get(idx) || {
+                id: "",
+                name: "",
+                argsText: "",
+              };
+              if (tc.id) existing.id = tc.id;
+              if (tc.function?.name) existing.name += tc.function.name;
+              if (tc.function?.arguments) {
+                existing.argsText += tc.function.arguments;
+              }
+              toolCallsAcc.set(idx, existing);
+            }
+          }
+        } catch (innerErr) {
+          if (innerErr instanceof GroqApiError) throw innerErr;
+          // Ignore partial keepalive comments
         }
       }
     }
@@ -634,5 +918,9 @@ export async function streamGroqReply(
     reader.releaseLock();
   }
 
-  return { modelUsed };
+  return {
+    modelUsed,
+    assistantContent: fullAssistantContent,
+    toolCalls: finalizeToolCalls(),
+  };
 }

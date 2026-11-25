@@ -7,7 +7,12 @@ import {
   streamGroqReply,
 } from "../services/groq.js";
 import { analyzePdfBuffer } from "../services/pdf.js";
-import type { ChatRequestBody, ConversationTurn, IncomingAttachment } from "../types.js";
+import type {
+  AgentLoopMessage,
+  ChatRequestBody,
+  ConversationTurn,
+  IncomingAttachment,
+} from "../types.js";
 
 export const chatRouter = Router();
 
@@ -27,8 +32,56 @@ interface ValidatedInput {
   message: string;
   history: ConversationTurn[];
   rawAttachments: IncomingAttachment[];
+  agentMessages: AgentLoopMessage[];
+  enableTools: boolean;
   requestedModel?: string;
   requestedVisionModel?: string;
+}
+
+function sanitizeAgentMessages(raw: unknown): AgentLoopMessage[] {
+  if (!Array.isArray(raw)) return [];
+  const cleaned: AgentLoopMessage[] = [];
+
+  for (const item of raw.slice(-LIMITS.maxAgentMessages)) {
+    if (!item || typeof item !== "object") continue;
+    const msg = item as Record<string, unknown>;
+
+    if (msg.role === "assistant" && Array.isArray(msg.tool_calls)) {
+      const validCalls = msg.tool_calls
+        .filter((tc): tc is Record<string, unknown> => Boolean(tc && typeof tc === "object"))
+        .map((tc, idx) => {
+          const fn = (tc.function || {}) as Record<string, unknown>;
+          return {
+            id: typeof tc.id === "string" ? tc.id : `call_${idx}`,
+            type: "function" as const,
+            function: {
+              name: typeof fn.name === "string" ? fn.name : "",
+              arguments: typeof fn.arguments === "string" ? fn.arguments : "{}",
+            },
+          };
+        })
+        .filter((tc) => Boolean(tc.function.name));
+
+      if (validCalls.length > 0) {
+        cleaned.push({
+          role: "assistant",
+          content: typeof msg.content === "string" && msg.content.trim() ? msg.content : null,
+          tool_calls: validCalls,
+        });
+      }
+    } else if (msg.role === "tool" && typeof msg.tool_call_id === "string") {
+      cleaned.push({
+        role: "tool",
+        tool_call_id: msg.tool_call_id,
+        content:
+          typeof msg.content === "string"
+            ? msg.content.slice(0, 14_000)
+            : "{}",
+      });
+    }
+  }
+
+  return cleaned;
 }
 
 function validateChatInput(req: Request): ValidatedInput {
@@ -39,6 +92,8 @@ function validateChatInput(req: Request): ValidatedInput {
   const rawAttachments: IncomingAttachment[] = Array.isArray(body.attachments)
     ? body.attachments
     : [];
+  const agentMessages = sanitizeAgentMessages(body.agentMessages);
+  const enableTools = body.enableTools !== false;
 
   const history: ConversationTurn[] = Array.isArray(body.history)
     ? body.history
@@ -69,7 +124,7 @@ function validateChatInput(req: Request): ValidatedInput {
     );
   }
 
-  if (!message && rawAttachments.length === 0) {
+  if (!message && rawAttachments.length === 0 && agentMessages.length === 0) {
     throw new RequestValidationError(
       "Please enter a message or attach an image/PDF.",
       400
@@ -81,6 +136,8 @@ function validateChatInput(req: Request): ValidatedInput {
     message,
     history,
     rawAttachments,
+    agentMessages,
+    enableTools,
     requestedModel: body.model,
     requestedVisionModel: body.visionModel,
   };
@@ -171,6 +228,8 @@ chatRouter.post("/chat", async (req, res) => {
       history: input.history,
       imageDataUrls: files.imageDataUrls,
       contextSections: files.contextSections,
+      agentMessages: input.agentMessages,
+      enableTools: input.enableTools,
       requestedModel: input.requestedModel,
       requestedVisionModel: input.requestedVisionModel,
     });
@@ -178,10 +237,11 @@ chatRouter.post("/chat", async (req, res) => {
     res.json({
       response: reply.response,
       reasoning: reply.reasoning,
+      toolCalls: reply.toolCalls,
       modelUsed: reply.modelUsed,
       notices: [...files.notices, ...reply.notices],
       extractedTexts: files.extractedTexts,
-      protocol: 3,
+      protocol: 4,
     });
   } catch (err) {
     if (err instanceof RequestValidationError) {
@@ -197,7 +257,7 @@ chatRouter.post("/chat", async (req, res) => {
   }
 });
 
-// Real-time Server-Sent Events (SSE) Streaming endpoint
+// Real-time Server-Sent Events (SSE) Streaming + Agentic Tool Calling endpoint
 chatRouter.post("/chat/stream", async (req, res) => {
   let input: ValidatedInput;
   try {
@@ -239,17 +299,20 @@ chatRouter.post("/chat/stream", async (req, res) => {
   const startedAt = Date.now();
 
   try {
-    if (input.rawAttachments.length > 0) {
+    const isFirstAgentStep = input.agentMessages.length === 0;
+    if (isFirstAgentStep && input.rawAttachments.length > 0) {
       sendEvent({ type: "status", stage: "processing_attachments" });
     }
 
     const files = await processIncomingAttachments(input.rawAttachments, input.message);
 
-    sendEvent({
-      type: "meta",
-      notices: files.notices,
-      extractedTexts: files.extractedTexts,
-    });
+    if (isFirstAgentStep) {
+      sendEvent({
+        type: "meta",
+        notices: files.notices,
+        extractedTexts: files.extractedTexts,
+      });
+    }
 
     const result = await streamGroqReply(
       {
@@ -258,6 +321,8 @@ chatRouter.post("/chat/stream", async (req, res) => {
         history: input.history,
         imageDataUrls: files.imageDataUrls,
         contextSections: files.contextSections,
+        agentMessages: input.agentMessages,
+        enableTools: input.enableTools,
         requestedModel: input.requestedModel,
         requestedVisionModel: input.requestedVisionModel,
       },
@@ -269,11 +334,20 @@ chatRouter.post("/chat/stream", async (req, res) => {
       abortController.signal
     );
 
-    sendEvent({
-      type: "done",
-      modelUsed: result.modelUsed,
-      durationMs: Date.now() - startedAt,
-    });
+    if (result.toolCalls.length > 0) {
+      sendEvent({
+        type: "tool_calls",
+        assistantContent: result.assistantContent,
+        toolCalls: result.toolCalls,
+        modelUsed: result.modelUsed,
+      });
+    } else {
+      sendEvent({
+        type: "done",
+        modelUsed: result.modelUsed,
+        durationMs: Date.now() - startedAt,
+      });
+    }
   } catch (err) {
     if (!clientClosed) {
       if (err instanceof RequestValidationError) {
