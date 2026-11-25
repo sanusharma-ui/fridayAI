@@ -1,288 +1,353 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import {
+  ArrowDownLeft,
   ArrowRight,
+  ArrowUpRight,
   Code2,
   KeyRound,
   PhoneCall,
-  ShieldCheck,
   UserPlus,
+  Users,
   Wallet,
 } from "lucide-react-native";
 import { colors } from "../theme/colors";
-import { FridayMark } from "./FridayMark";
+import { useResponsive } from "../theme/responsive";
 
 interface WelcomeViewProps {
   hasApiKey: boolean;
   disabled: boolean;
+  contactsCount: number;
+  totalPayable: number;
+  totalReceivable: number;
   onSelectPrompt: (prompt: string) => void;
+  onOpenContacts: () => void;
   onOpenSettings: () => void;
 }
 
-const STARTERS = [
+const BENTO_CARDS = [
   {
     icon: UserPlus,
-    iconColor: colors.accent,
-    title: "Save Contact & Hisaab",
-    subtitle: "Natural Hinglish / Hindi / English",
+    tint: colors.accent,
+    tintBg: colors.accentSoft,
+    tintBorder: colors.accentBorder,
+    title: "Save Contact & Info",
+    subtitle: "Phone, birthday, notes",
     prompt:
-      "Sharma ji ka number 9876543210 save kar lo, aur yaad rakhna unko 500 rupaye electricity bill ke dene hain.",
+      "Rahul ka number 9876543210 save kar lo, birthday 18 August hai.",
   },
   {
     icon: Wallet,
-    iconColor: colors.sage,
-    title: "Check Birthdays & Pending Dues",
-    subtitle: "Query your local SQLite vault",
+    tint: colors.sage,
+    tintBg: colors.sageSoft,
+    tintBorder: colors.sageBorder,
+    title: "Track Hisaab & Bills",
+    subtitle: "Lena-dena & reminders",
     prompt:
-      "Mere saved contacts, birthdays, aur kis-kis ke paise lene ya dene baki hain iska summary batao.",
+      "Sharma ji ko 500 rupaye electricity bill ke dene hain, yaad rakhna.",
   },
   {
     icon: PhoneCall,
-    iconColor: "#c89b84",
-    title: "Smart Call & SMS Draft",
-    subtitle: "Always asks confirmation first",
+    tint: colors.sky,
+    tintBg: colors.skySoft,
+    tintBorder: colors.skyBorder,
+    title: "Call or Draft SMS",
+    subtitle: "Confirms before sending",
     prompt:
-      "Sharma ji ko SMS draft bana do ki kal shaam tak ₹500 bhej dunga.",
+      "Sharma ji ko SMS draft bana do ki kal shaam tak paise bhej dunga.",
   },
   {
     icon: Code2,
-    iconColor: "#9fb7b5",
-    title: "Normal AI Chat, Code & Tables",
-    subtitle: "Same input box for everything",
+    tint: colors.warning,
+    tintBg: colors.warningBg,
+    tintBorder: colors.warningBorder,
+    title: "Code, Docs & Tables",
+    subtitle: "Ask any technical topic",
     prompt:
-      "Compare REST vs GraphQL vs tRPC in a clean Markdown table, then show a TypeScript Express route example.",
+      "Compare SQLite vs Room in a clean Markdown table with a TypeScript example.",
   },
 ];
+
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 5) return "Up late?";
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
 
 export function WelcomeView({
   hasApiKey,
   disabled,
+  contactsCount,
+  totalPayable,
+  totalReceivable,
   onSelectPrompt,
+  onOpenContacts,
   onOpenSettings,
 }: WelcomeViewProps) {
+  const { horizontalPad, contentMaxWidth, bentoColumns, isCompact } =
+    useResponsive();
+
+  const showVaultStrip =
+    contactsCount > 0 || totalPayable > 0 || totalReceivable > 0;
+
   return (
-    <View style={styles.wrap}>
-      <View style={styles.brandBadge}>
-        <FridayMark size={22} color={colors.accent} />
+    <View
+      style={[
+        styles.outer,
+        { paddingHorizontal: horizontalPad },
+        contentMaxWidth ? { maxWidth: contentMaxWidth, alignSelf: "center", width: "100%" } : null,
+      ]}
+    >
+      {/* Hero Greeting */}
+      <View style={styles.hero}>
+        <Text style={styles.greeting}>{getGreeting()}</Text>
+        <Text style={[styles.headline, isCompact && styles.headlineCompact]}>
+          How can I help today?
+        </Text>
+        <Text style={styles.subtext}>
+          Manage contacts, paise ka hisaab, calls & SMS, or dive into code and documents — all from one place.
+        </Text>
       </View>
 
-      <View style={styles.eyebrowRow}>
-        <View style={styles.eyebrowLine} />
-        <Text style={styles.eyebrowText}>PERSONAL AI · CONTACTS & MEMORY</Text>
-      </View>
-
-      <Text style={styles.title}>What&apos;s on your mind?</Text>
-      <Text style={styles.description}>
-        One smart chat box for everything — save contacts, track paise ka hisaab & birthdays, place calls/SMS with confirmation, or ask any coding & document question.
-      </Text>
-
-      {!hasApiKey && (
+      {/* Live Vault Overview Strip */}
+      {showVaultStrip && (
         <Pressable
-          onPress={onOpenSettings}
-          style={({ pressed }) => [styles.setupKeyBanner, pressed && styles.pressed]}
+          onPress={onOpenContacts}
+          style={({ pressed }) => [
+            styles.vaultStrip,
+            pressed && styles.pressed,
+          ]}
         >
-          <View style={styles.setupKeyIcon}>
-            <KeyRound size={18} color={colors.accent} />
+          <View style={styles.vaultItem}>
+            <Users size={14} color={colors.sky} />
+            <Text style={styles.vaultValue}>{contactsCount}</Text>
+            <Text style={styles.vaultLabel}>Contacts</Text>
           </View>
-          <View style={styles.setupKeyCopy}>
-            <Text style={styles.setupKeyTitle}>Setup your Groq API Key</Text>
-            <Text style={styles.setupKeySubtitle}>
-              Tap to open Settings and connect your personal Groq API key to start chatting.
+
+          <View style={styles.vaultDivider} />
+
+          <View style={styles.vaultItem}>
+            <ArrowUpRight size={14} color={colors.danger} />
+            <Text style={[styles.vaultValue, { color: colors.danger }]}>
+              ₹{totalPayable}
             </Text>
+            <Text style={styles.vaultLabel}>To Pay</Text>
           </View>
-          <ArrowRight size={16} color={colors.accent} />
+
+          <View style={styles.vaultDivider} />
+
+          <View style={styles.vaultItem}>
+            <ArrowDownLeft size={14} color={colors.sage} />
+            <Text style={[styles.vaultValue, { color: colors.sage }]}>
+              ₹{totalReceivable}
+            </Text>
+            <Text style={styles.vaultLabel}>To Collect</Text>
+          </View>
         </Pressable>
       )}
 
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionLabel}>TRY SAYING ANYTHING NATURALLY</Text>
-        <Text style={styles.sectionCounter}>01 — 04</Text>
-      </View>
+      {/* Setup Key Banner */}
+      {!hasApiKey && (
+        <Pressable
+          onPress={onOpenSettings}
+          style={({ pressed }) => [
+            styles.keyBanner,
+            pressed && styles.pressed,
+          ]}
+        >
+          <View style={styles.keyBannerIcon}>
+            <KeyRound size={18} color={colors.warning} />
+          </View>
+          <View style={styles.keyBannerCopy}>
+            <Text style={styles.keyBannerTitle}>Connect your Groq API key</Text>
+            <Text style={styles.keyBannerSub}>
+              Add your free key in Settings to start chatting
+            </Text>
+          </View>
+          <ArrowRight size={16} color={colors.warning} />
+        </Pressable>
+      )}
 
-      <View style={styles.grid}>
-        {STARTERS.map((item) => {
-          const IconComponent = item.icon;
+      {/* 2x2 Bento Quick-Start Grid */}
+      <View style={styles.bentoGrid}>
+        {BENTO_CARDS.map((card) => {
+          const IconComponent = card.icon;
           return (
             <Pressable
-              key={item.title}
+              key={card.title}
               disabled={disabled}
-              onPress={() => onSelectPrompt(item.prompt)}
+              onPress={() => onSelectPrompt(card.prompt)}
               style={({ pressed }) => [
-                styles.starterCard,
+                styles.bentoCard,
+                bentoColumns === 2 ? styles.bentoHalf : styles.bentoFull,
                 disabled && styles.disabled,
-                pressed && styles.starterCardPressed,
+                pressed && styles.bentoCardPressed,
               ]}
             >
-              <View style={styles.starterIconWrap}>
-                <IconComponent size={18} color={item.iconColor} />
+              <View
+                style={[
+                  styles.bentoIconBox,
+                  {
+                    backgroundColor: card.tintBg,
+                    borderColor: card.tintBorder,
+                  },
+                ]}
+              >
+                <IconComponent size={17} color={card.tint} />
               </View>
-              <View style={styles.starterCopy}>
-                <Text style={styles.starterTitle}>{item.title}</Text>
-                <Text style={styles.starterSub}>{item.subtitle}</Text>
-              </View>
-              <ArrowRight size={14} color={colors.subtle} />
+              <Text style={styles.bentoTitle}>{card.title}</Text>
+              <Text style={styles.bentoSub} numberOfLines={2}>
+                {card.subtitle}
+              </Text>
             </Pressable>
           );
         })}
-      </View>
-
-      <View style={styles.footerNote}>
-        <ShieldCheck size={13} color={colors.sage} />
-        <Text style={styles.footerNoteText}>
-          100% private — contacts & memories stored locally in SQLite
-        </Text>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: {
-    paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 24,
+  outer: {
+    paddingTop: 22,
+    paddingBottom: 20,
+    gap: 18,
   },
-  brandBadge: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: colors.accentSoft,
-    borderWidth: 1,
-    borderColor: colors.accentBorder,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 14,
+  hero: {
+    gap: 4,
   },
-  eyebrowRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 8,
-  },
-  eyebrowLine: {
-    width: 16,
-    height: 1,
-    backgroundColor: colors.accent,
-  },
-  eyebrowText: {
-    fontSize: 9,
-    letterSpacing: 1.7,
+  greeting: {
+    fontSize: 14,
+    fontWeight: "600",
     color: colors.accent,
-    fontWeight: "600",
+    letterSpacing: 0.1,
   },
-  title: {
-    fontSize: 27,
-    fontWeight: "600",
+  headline: {
+    fontSize: 30,
+    fontWeight: "700",
     color: colors.text,
-    letterSpacing: -0.8,
+    letterSpacing: -0.9,
+    lineHeight: 36,
   },
-  description: {
-    fontSize: 13,
+  headlineCompact: {
+    fontSize: 25,
+    lineHeight: 31,
+  },
+  subtext: {
+    fontSize: 13.5,
     lineHeight: 20,
     color: colors.muted,
-    marginTop: 7,
-    marginBottom: 20,
+    marginTop: 4,
   },
-  setupKeyBanner: {
+  vaultStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+  },
+  vaultItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  vaultValue: {
+    fontSize: 13.5,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  vaultLabel: {
+    fontSize: 11.5,
+    color: colors.muted,
+  },
+  vaultDivider: {
+    width: 1,
+    height: 16,
+    backgroundColor: colors.line,
+  },
+  keyBanner: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     padding: 14,
-    borderRadius: 13,
-    backgroundColor: colors.accentSoft,
+    borderRadius: 15,
+    backgroundColor: colors.warningBg,
     borderWidth: 1,
-    borderColor: colors.accentBorder,
-    marginBottom: 22,
+    borderColor: colors.warningBorder,
   },
-  setupKeyIcon: {
+  keyBannerIcon: {
     width: 38,
     height: 38,
-    borderRadius: 10,
+    borderRadius: 11,
     backgroundColor: colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },
-  setupKeyCopy: {
+  keyBannerCopy: {
     flex: 1,
   },
-  setupKeyTitle: {
+  keyBannerTitle: {
     fontSize: 14,
-    fontWeight: "600",
-    color: colors.accent,
+    fontWeight: "700",
+    color: colors.warning,
   },
-  setupKeySubtitle: {
+  keyBannerSub: {
     fontSize: 12,
     color: colors.textSecondary,
-    lineHeight: 17,
     marginTop: 2,
   },
-  sectionHeader: {
+  bentoGrid: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 10,
+    flexWrap: "wrap",
+    gap: 10,
   },
-  sectionLabel: {
-    fontSize: 9.5,
-    letterSpacing: 1.4,
-    color: colors.subtle,
-    fontWeight: "600",
-  },
-  sectionCounter: {
-    fontSize: 10,
-    color: colors.accent,
-  },
-  grid: {
-    gap: 8,
-  },
-  starterCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 13,
-    paddingHorizontal: 13,
-    borderRadius: 12,
+  bentoCard: {
     backgroundColor: colors.surface,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.line,
+    padding: 14,
+    gap: 8,
   },
-  starterCardPressed: {
-    backgroundColor: colors.surfaceHover,
+  bentoHalf: {
+    flexGrow: 1,
+    flexBasis: "46%",
+  },
+  bentoFull: {
+    width: "100%",
+  },
+  bentoCardPressed: {
+    backgroundColor: colors.surfaceElevated,
     borderColor: colors.lineStrong,
   },
-  starterIconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 9,
-    backgroundColor: colors.sidebar,
+  bentoIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+    marginBottom: 2,
   },
-  starterCopy: {
-    flex: 1,
-  },
-  starterTitle: {
-    fontSize: 13,
-    fontWeight: "600",
+  bentoTitle: {
+    fontSize: 14,
+    fontWeight: "700",
     color: colors.text,
+    letterSpacing: -0.2,
   },
-  starterSub: {
-    fontSize: 11.5,
+  bentoSub: {
+    fontSize: 12,
+    lineHeight: 16.5,
     color: colors.muted,
-    marginTop: 2,
-  },
-  footerNote: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    marginTop: 18,
-  },
-  footerNoteText: {
-    fontSize: 11,
-    color: colors.subtle,
   },
   pressed: {
-    opacity: 0.85,
+    opacity: 0.84,
   },
   disabled: {
     opacity: 0.5,

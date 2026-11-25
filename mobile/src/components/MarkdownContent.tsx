@@ -81,7 +81,6 @@ function parseRichMarkdown(markdown: string): RichBlock[] {
       continue;
     }
 
-    // 1. Fenced code block (supports both closed and streaming/unclosed blocks!)
     const fenceMatch = /^```([a-zA-Z0-9_+#.-]*)\s*$/.exec(trimmed);
     if (fenceMatch) {
       const lang = fenceMatch[1] || "";
@@ -106,14 +105,12 @@ function parseRichMarkdown(markdown: string): RichBlock[] {
       continue;
     }
 
-    // 2. Horizontal rule
     if (/^(?:---+|\*\*\*+|___+)$/.test(trimmed)) {
       blocks.push({ type: "hr" });
       i++;
       continue;
     }
 
-    // 3. Heading
     const headingMatch = /^(#{1,4})\s+(.+)$/.exec(trimmed);
     if (headingMatch) {
       blocks.push({
@@ -125,7 +122,6 @@ function parseRichMarkdown(markdown: string): RichBlock[] {
       continue;
     }
 
-    // 4. GFM Table (header row + separator row + 0..N data rows)
     if (
       trimmed.includes("|") &&
       i + 1 < lines.length &&
@@ -144,7 +140,6 @@ function parseRichMarkdown(markdown: string): RichBlock[] {
       }
     }
 
-    // 5. Blockquote or GitHub Callout (> [!TIP], > [!NOTE], etc.)
     if (trimmed.startsWith(">")) {
       const quoteLines: string[] = [];
       while (i < lines.length && lines[i].trim().startsWith(">")) {
@@ -174,7 +169,6 @@ function parseRichMarkdown(markdown: string): RichBlock[] {
       continue;
     }
 
-    // 6. Lists (bullet, numbered, task checklist, nested)
     if (LIST_LINE_REGEX.test(rawLine)) {
       const items: ListItemNode[] = [];
       while (i < lines.length) {
@@ -206,7 +200,6 @@ function parseRichMarkdown(markdown: string): RichBlock[] {
       continue;
     }
 
-    // 7. Paragraph
     const paraLines: string[] = [];
     while (i < lines.length) {
       const cur = lines[i];
@@ -327,9 +320,9 @@ const CALLOUT_THEMES: Record<
 > = {
   NOTE: {
     title: "Note",
-    color: "#8eb8d9",
-    bg: "rgba(142, 184, 217, 0.09)",
-    border: "rgba(142, 184, 217, 0.35)",
+    color: colors.sky,
+    bg: colors.skySoft,
+    border: colors.skyBorder,
     Icon: Info,
   },
   TIP: {
@@ -350,7 +343,7 @@ const CALLOUT_THEMES: Record<
     title: "Warning",
     color: colors.warning,
     bg: colors.warningBg,
-    border: "rgba(216, 190, 130, 0.35)",
+    border: colors.warningBorder,
     Icon: AlertTriangle,
   },
   CAUTION: {
@@ -541,12 +534,12 @@ const styles = StyleSheet.create({
   },
   paragraph: {
     flex: 1,
-    fontSize: 14.5,
-    lineHeight: 23,
+    fontSize: 15,
+    lineHeight: 23.5,
     color: colors.text,
   },
   headingBase: {
-    color: "#f3f1ea",
+    color: "#FFFFFF",
     fontWeight: "700",
     letterSpacing: -0.3,
   },
@@ -583,11 +576,11 @@ const styles = StyleSheet.create({
   },
   bold: {
     fontWeight: "700",
-    color: "#ffffff",
+    color: "#FFFFFF",
   },
   italic: {
     fontStyle: "italic",
-    color: "#e0e3d8",
+    color: colors.textSecondary,
   },
   strike: {
     textDecorationLine: "line-through",
@@ -596,21 +589,21 @@ const styles = StyleSheet.create({
   inlineCode: {
     fontFamily: monoFont,
     fontSize: 12.5,
-    backgroundColor: "#242922",
-    color: colors.accent,
+    backgroundColor: colors.surfaceElevated,
+    color: "#FFA657",
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: 5,
   },
   link: {
-    color: colors.accent,
+    color: colors.sky,
     textDecorationLine: "underline",
     fontWeight: "500",
   },
   calloutBox: {
     borderWidth: 1,
     borderLeftWidth: 3.5,
-    borderRadius: 10,
+    borderRadius: 11,
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 5,
@@ -623,7 +616,6 @@ const styles = StyleSheet.create({
   calloutTitle: {
     fontSize: 12,
     fontWeight: "700",
-    letterSpacing: 0.4,
   },
   calloutBody: {
     fontSize: 13.5,
@@ -632,11 +624,11 @@ const styles = StyleSheet.create({
   },
   quoteBox: {
     borderLeftWidth: 3,
-    borderLeftColor: colors.sage,
-    backgroundColor: "rgba(166, 185, 154, 0.08)",
+    borderLeftColor: colors.sky,
+    backgroundColor: colors.skySoft,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 7,
+    borderRadius: 8,
   },
   quoteText: {
     fontSize: 13.5,

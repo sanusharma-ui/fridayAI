@@ -9,13 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import {
-  Check,
-  MessageSquareText,
-  PhoneCall,
-  ShieldAlert,
-  X,
-} from "lucide-react-native";
+import { Check, MessageSquareText, PhoneCall, X } from "lucide-react-native";
 import { colors } from "../theme/colors";
 import type { PendingDeviceAction } from "../types";
 
@@ -46,9 +40,8 @@ export function ActionConfirmCard({
       return;
     }
 
-    const telUrl = `tel:${cleanPhone}`;
     try {
-      await Linking.openURL(telUrl);
+      await Linking.openURL(`tel:${cleanPhone}`);
       onUpdateAction(action.id, { status: "confirmed" });
     } catch {
       Alert.alert(
@@ -92,128 +85,32 @@ export function ActionConfirmCard({
       <View
         style={[
           styles.card,
-          isConfirmed && styles.cardConfirmed,
+          styles.callBorder,
           action.status === "cancelled" && styles.cardCancelled,
         ]}
       >
         <View style={styles.headerRow}>
-          <View style={styles.iconWrapSage}>
-            <PhoneCall size={16} color={colors.sage} />
+          <View style={styles.callIconWrap}>
+            <PhoneCall size={18} color={colors.sage} />
           </View>
           <View style={styles.headerTextWrap}>
-            <Text style={styles.eyebrow}>
-              {isPending
-                ? "CONFIRM PHONE CALL"
-                : isConfirmed
-                ? "CALL CONFIRMED"
-                : "CALL CANCELLED"}
-            </Text>
+            <Text style={styles.callTag}>Phone Call</Text>
             <Text style={styles.contactTitle}>{action.contactName}</Text>
             <Text style={styles.phoneText}>{action.phone}</Text>
           </View>
         </View>
 
         {isPending ? (
-          <>
-            <View style={styles.safetyNote}>
-              <ShieldAlert size={12} color={colors.accent} />
-              <Text style={styles.safetyNoteText}>
-                Confirm karne par Android Dialer open hoga.
-              </Text>
-            </View>
-            <View style={styles.btnRow}>
-              <Pressable
-                onPress={handleConfirmCall}
-                style={({ pressed }) => [
-                  styles.confirmBtn,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <PhoneCall size={14} color={colors.ctaText} />
-                <Text style={styles.confirmBtnText}>Confirm Call</Text>
-              </Pressable>
-
-              <Pressable
-                onPress={handleCancel}
-                style={({ pressed }) => [
-                  styles.cancelBtn,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <X size={14} color={colors.muted} />
-                <Text style={styles.cancelBtnText}>Cancel</Text>
-              </Pressable>
-            </View>
-          </>
-        ) : (
-          <View style={styles.statusFooter}>
-            {isConfirmed ? (
-              <>
-                <Check size={13} color={colors.sage} />
-                <Text style={[styles.statusFooterText, { color: colors.sage }]}>
-                  Opened in Android Phone Dialer
-                </Text>
-              </>
-            ) : (
-              <>
-                <X size={13} color={colors.muted} />
-                <Text style={styles.statusFooterText}>Call cancelled</Text>
-              </>
-            )}
-          </View>
-        )}
-      </View>
-    );
-  }
-
-  // SMS Draft Confirmation Card
-  return (
-    <View
-      style={[
-        styles.card,
-        isConfirmed && styles.cardConfirmed,
-        action.status === "cancelled" && styles.cardCancelled,
-      ]}
-    >
-      <View style={styles.headerRow}>
-        <View style={styles.iconWrapAccent}>
-          <MessageSquareText size={16} color={colors.accent} />
-        </View>
-        <View style={styles.headerTextWrap}>
-          <Text style={[styles.eyebrow, { color: colors.accent }]}>
-            {isPending
-              ? "SMS DRAFT · CONFIRM TO SEND"
-              : isConfirmed
-              ? "SMS OPENED"
-              : "SMS CANCELLED"}
-          </Text>
-          <Text style={styles.contactTitle}>
-            To: {action.contactName} ({action.phone})
-          </Text>
-        </View>
-      </View>
-
-      {isPending ? (
-        <>
-          <Text style={styles.draftLabel}>MESSAGE DRAFT (EDITABLE)</Text>
-          <TextInput
-            value={smsBody}
-            onChangeText={setSmsBody}
-            multiline
-            style={styles.smsInput}
-            placeholder="Write SMS message…"
-            placeholderTextColor={colors.subtle}
-          />
           <View style={styles.btnRow}>
             <Pressable
-              onPress={handleConfirmSms}
+              onPress={handleConfirmCall}
               style={({ pressed }) => [
-                styles.confirmBtn,
+                styles.callConfirmBtn,
                 pressed && styles.pressed,
               ]}
             >
-              <MessageSquareText size={14} color={colors.ctaText} />
-              <Text style={styles.confirmBtnText}>Confirm & Open SMS</Text>
+              <PhoneCall size={15} color="#062118" />
+              <Text style={styles.callConfirmText}>Confirm Call</Text>
             </Pressable>
 
             <Pressable
@@ -223,7 +120,80 @@ export function ActionConfirmCard({
                 pressed && styles.pressed,
               ]}
             >
-              <X size={14} color={colors.muted} />
+              <X size={15} color={colors.muted} />
+              <Text style={styles.cancelBtnText}>Cancel</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.statusFooter}>
+            {isConfirmed ? (
+              <>
+                <Check size={14} color={colors.sage} />
+                <Text style={[styles.statusFooterText, { color: colors.sage }]}>
+                  Opened in Phone Dialer
+                </Text>
+              </>
+            ) : (
+              <>
+                <X size={14} color={colors.muted} />
+                <Text style={styles.statusFooterText}>Call cancelled</Text>
+              </>
+            )}
+          </View>
+        )}
+      </View>
+    );
+  }
+
+  return (
+    <View
+      style={[
+        styles.card,
+        styles.smsBorder,
+        action.status === "cancelled" && styles.cardCancelled,
+      ]}
+    >
+      <View style={styles.headerRow}>
+        <View style={styles.smsIconWrap}>
+          <MessageSquareText size={18} color={colors.sky} />
+        </View>
+        <View style={styles.headerTextWrap}>
+          <Text style={styles.smsTag}>SMS Draft</Text>
+          <Text style={styles.contactTitle}>{action.contactName}</Text>
+          <Text style={styles.phoneText}>{action.phone}</Text>
+        </View>
+      </View>
+
+      {isPending ? (
+        <>
+          <TextInput
+            value={smsBody}
+            onChangeText={setSmsBody}
+            multiline
+            style={styles.smsInput}
+            placeholder="Edit message before sending…"
+            placeholderTextColor={colors.subtle}
+          />
+          <View style={styles.btnRow}>
+            <Pressable
+              onPress={handleConfirmSms}
+              style={({ pressed }) => [
+                styles.smsConfirmBtn,
+                pressed && styles.pressed,
+              ]}
+            >
+              <MessageSquareText size={15} color="#061629" />
+              <Text style={styles.smsConfirmText}>Confirm & Open SMS</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={handleCancel}
+              style={({ pressed }) => [
+                styles.cancelBtn,
+                pressed && styles.pressed,
+              ]}
+            >
+              <X size={15} color={colors.muted} />
               <Text style={styles.cancelBtnText}>Cancel</Text>
             </Pressable>
           </View>
@@ -238,15 +208,15 @@ export function ActionConfirmCard({
           <View style={styles.statusFooter}>
             {isConfirmed ? (
               <>
-                <Check size={13} color={colors.sage} />
-                <Text style={[styles.statusFooterText, { color: colors.sage }]}>
-                  Opened in SMS app after confirmation
+                <Check size={14} color={colors.sky} />
+                <Text style={[styles.statusFooterText, { color: colors.sky }]}>
+                  Opened in SMS app
                 </Text>
               </>
             ) : (
               <>
-                <X size={13} color={colors.muted} />
-                <Text style={styles.statusFooterText}>SMS draft cancelled</Text>
+                <X size={14} color={colors.muted} />
+                <Text style={styles.statusFooterText}>Draft cancelled</Text>
               </>
             )}
           </View>
@@ -258,57 +228,63 @@ export function ActionConfirmCard({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 13,
+    borderRadius: 15,
     backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.lineStrong,
-    padding: 13,
+    padding: 14,
     marginTop: 8,
-    gap: 10,
+    gap: 12,
   },
-  cardConfirmed: {
+  callBorder: {
     borderColor: colors.sageBorder,
   },
+  smsBorder: {
+    borderColor: colors.skyBorder,
+  },
   cardCancelled: {
-    opacity: 0.72,
+    opacity: 0.65,
     borderColor: colors.line,
   },
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 11,
+    gap: 12,
   },
-  iconWrapSage: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+  callIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     backgroundColor: colors.sageSoft,
     borderWidth: 1,
     borderColor: colors.sageBorder,
     alignItems: "center",
     justifyContent: "center",
   },
-  iconWrapAccent: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: colors.accentSoft,
+  smsIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: colors.skySoft,
     borderWidth: 1,
-    borderColor: colors.accentBorder,
+    borderColor: colors.skyBorder,
     alignItems: "center",
     justifyContent: "center",
   },
   headerTextWrap: {
     flex: 1,
   },
-  eyebrow: {
-    fontSize: 9.5,
+  callTag: {
+    fontSize: 11,
     fontWeight: "700",
-    letterSpacing: 1.1,
     color: colors.sage,
   },
+  smsTag: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.sky,
+  },
   contactTitle: {
-    fontSize: 14.5,
+    fontSize: 15,
     fontWeight: "700",
     color: colors.text,
     marginTop: 1,
@@ -318,74 +294,70 @@ const styles = StyleSheet.create({
     color: colors.muted,
     marginTop: 1,
   },
-  safetyNote: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: colors.sidebar,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 8,
-  },
-  safetyNoteText: {
-    fontSize: 11.5,
-    color: colors.muted,
-  },
-  draftLabel: {
-    fontSize: 9.5,
-    fontWeight: "600",
-    letterSpacing: 1.1,
-    color: colors.subtle,
-  },
   smsInput: {
-    minHeight: 68,
-    maxHeight: 140,
-    borderRadius: 9,
+    minHeight: 72,
+    maxHeight: 145,
+    borderRadius: 11,
     backgroundColor: colors.sidebar,
     borderWidth: 1,
     borderColor: colors.lineStrong,
-    paddingHorizontal: 11,
-    paddingVertical: 9,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     color: colors.text,
-    fontSize: 13.5,
-    lineHeight: 19,
+    fontSize: 14,
+    lineHeight: 20,
     textAlignVertical: "top",
   },
   readonlyDraftBox: {
-    borderRadius: 8,
+    borderRadius: 10,
     backgroundColor: colors.sidebar,
-    paddingHorizontal: 11,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
   },
   readonlyDraftText: {
-    fontSize: 13,
-    lineHeight: 18.5,
+    fontSize: 13.5,
+    lineHeight: 19,
     color: colors.textSecondary,
   },
   btnRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 9,
+    gap: 8,
   },
-  confirmBtn: {
+  callConfirmBtn: {
     flex: 1,
-    height: 40,
-    borderRadius: 9,
-    backgroundColor: colors.ctaBg,
+    height: 42,
+    borderRadius: 11,
+    backgroundColor: colors.sage,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 7,
   },
-  confirmBtnText: {
-    fontSize: 12.5,
+  callConfirmText: {
+    fontSize: 13,
     fontWeight: "700",
-    color: colors.ctaText,
+    color: "#062118",
+  },
+  smsConfirmBtn: {
+    flex: 1,
+    height: 42,
+    borderRadius: 11,
+    backgroundColor: colors.sky,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  smsConfirmText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#061629",
   },
   cancelBtn: {
-    height: 40,
+    height: 42,
     paddingHorizontal: 14,
-    borderRadius: 9,
+    borderRadius: 11,
     backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
     borderColor: colors.line,
@@ -395,7 +367,7 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   cancelBtnText: {
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: "600",
     color: colors.muted,
   },
@@ -405,11 +377,11 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   statusFooterText: {
-    fontSize: 12,
+    fontSize: 12.5,
     color: colors.muted,
-    fontWeight: "500",
+    fontWeight: "600",
   },
   pressed: {
-    opacity: 0.82,
+    opacity: 0.84,
   },
 });

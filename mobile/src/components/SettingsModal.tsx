@@ -25,7 +25,6 @@ import {
   RefreshCw,
   Server,
   ShieldCheck,
-  Sparkles,
   Trash2,
   Wifi,
   X,
@@ -37,6 +36,7 @@ import {
 } from "../services/api";
 import { maskApiKey } from "../services/settingsStorage";
 import { colors } from "../theme/colors";
+import { useResponsive } from "../theme/responsive";
 import type { AppSettings, GroqModelOption } from "../types";
 
 interface SettingsModalProps {
@@ -44,7 +44,10 @@ interface SettingsModalProps {
   settings: AppSettings;
   availableModels: GroqModelOption[];
   onClose: () => void;
-  onSaveSettings: (next: AppSettings, updatedModels?: GroqModelOption[]) => Promise<void>;
+  onSaveSettings: (
+    next: AppSettings,
+    updatedModels?: GroqModelOption[]
+  ) => Promise<void>;
 }
 
 export function SettingsModal({
@@ -54,11 +57,15 @@ export function SettingsModal({
   onClose,
   onSaveSettings,
 }: SettingsModalProps) {
+  const { horizontalPad, contentMaxWidth } = useResponsive();
+
   const [apiKeyInput, setApiKeyInput] = useState(settings.groqApiKey);
   const [showKey, setShowKey] = useState(false);
   const [backendUrlInput, setBackendUrlInput] = useState(settings.backendUrl);
   const [selectedModel, setSelectedModel] = useState(settings.selectedModel);
-  const [selectedVisionModel, setSelectedVisionModel] = useState(settings.selectedVisionModel);
+  const [selectedVisionModel, setSelectedVisionModel] = useState(
+    settings.selectedVisionModel
+  );
   const [models, setModels] = useState<GroqModelOption[]>(availableModels);
 
   const [verifyingKey, setVerifyingKey] = useState(false);
@@ -85,7 +92,7 @@ export function SettingsModal({
       setShowKey(false);
       setKeyStatus(
         settings.groqApiKey && settings.keyVerified
-          ? { type: "success", message: "Groq API key saved & verified on this device." }
+          ? { type: "success", message: "Key verified & active on this phone." }
           : { type: "idle", message: "" }
       );
       setBackendTestMsg({ type: "idle", message: "" });
@@ -109,13 +116,19 @@ export function SettingsModal({
 
   function handleClearKey() {
     setApiKeyInput("");
-    setKeyStatus({ type: "idle", message: "Key cleared. Tap Save Settings to apply." });
+    setKeyStatus({
+      type: "idle",
+      message: "Key cleared. Tap Save to apply.",
+    });
   }
 
   async function handleVerifyKey() {
     const cleanKey = apiKeyInput.trim();
     if (!cleanKey) {
-      setKeyStatus({ type: "error", message: "Pehle apni Groq API key enter ya paste karein." });
+      setKeyStatus({
+        type: "error",
+        message: "Please enter or paste your Groq API key first.",
+      });
       return;
     }
 
@@ -126,25 +139,29 @@ export function SettingsModal({
     setVerifyingKey(false);
 
     if (!res.valid) {
-      setKeyStatus({ type: "error", message: res.error || "Invalid Groq API key." });
+      setKeyStatus({
+        type: "error",
+        message: res.error || "Invalid Groq API key.",
+      });
       return;
     }
 
-    const nextModels = res.models && res.models.length > 0 ? res.models : models;
+    const nextModels =
+      res.models && res.models.length > 0 ? res.models : models;
     setModels(nextModels);
 
-    // Ensure selected models exist in updated list
     const nextTextModel = nextModels.some((m) => m.id === selectedModel)
       ? selectedModel
       : nextModels[0]?.id || selectedModel;
-    const nextVisModel = nextModels.some((m) => m.id === selectedVisionModel && m.supportsVision)
+    const nextVisModel = nextModels.some(
+      (m) => m.id === selectedVisionModel && m.supportsVision
+    )
       ? selectedVisionModel
       : nextModels.find((m) => m.supportsVision)?.id || selectedVisionModel;
 
     setSelectedModel(nextTextModel);
     setSelectedVisionModel(nextVisModel);
 
-    // Also auto-save immediately so user doesn't lose verified key!
     await onSaveSettings(
       {
         groqApiKey: cleanKey,
@@ -158,7 +175,7 @@ export function SettingsModal({
 
     setKeyStatus({
       type: "success",
-      message: `Verified & Saved! (${nextModels.length} Groq models unlocked)`,
+      message: `Verified & saved (${nextModels.length} Groq models available)`,
     });
   }
 
@@ -191,7 +208,9 @@ export function SettingsModal({
         backendUrl: backendUrlInput.trim(),
         selectedModel,
         selectedVisionModel,
-        keyVerified: keyUnchanged ? settings.keyVerified && Boolean(cleanKey) : Boolean(keyStatus.type === "success" && cleanKey),
+        keyVerified: keyUnchanged
+          ? settings.keyVerified && Boolean(cleanKey)
+          : Boolean(keyStatus.type === "success" && cleanKey),
       },
       models
     );
@@ -207,11 +226,12 @@ export function SettingsModal({
       onRequestClose={onClose}
     >
       <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
-        {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingHorizontal: horizontalPad }]}>
           <View>
-            <Text style={styles.headerEyebrow}>WORKSPACE CONFIGURATION</Text>
-            <Text style={styles.headerTitle}>Settings & API Keys</Text>
+            <Text style={styles.headerTitle}>Settings</Text>
+            <Text style={styles.headerSub}>
+              API keys, Groq models & server connection
+            </Text>
           </View>
           <Pressable
             onPress={onClose}
@@ -224,45 +244,48 @@ export function SettingsModal({
 
         <ScrollView
           style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingHorizontal: horizontalPad },
+            contentMaxWidth
+              ? { maxWidth: contentMaxWidth, alignSelf: "center", width: "100%" }
+              : null,
+          ]}
           keyboardShouldPersistTaps="handled"
         >
-          {/* SECTION 1: GROQ API KEY */}
+          {/* GROQ API KEY */}
           <View style={styles.card}>
             <View style={styles.cardHeaderRow}>
-              <View style={styles.iconBadgeAccent}>
-                <KeyRound size={18} color={colors.accent} />
+              <View style={styles.iconBadgeAmber}>
+                <KeyRound size={18} color={colors.warning} />
               </View>
               <View style={styles.cardHeaderText}>
-                <Text style={styles.cardTitle}>Groq API Key (BYOK)</Text>
+                <Text style={styles.cardTitle}>Groq API Key</Text>
                 <Text style={styles.cardSubtitle}>
-                  Apni personal Groq API key setup karein — device par encrypted save hoti hai.
+                  Encrypted locally on your phone via SecureStore.
                 </Text>
               </View>
             </View>
 
             <View style={styles.currentKeyBanner}>
-              <ShieldCheck size={14} color={apiKeyInput.trim() ? colors.sage : colors.muted} />
+              <ShieldCheck
+                size={14}
+                color={apiKeyInput.trim() ? colors.sage : colors.muted}
+              />
               <Text style={styles.currentKeyText}>
-                Status:{" "}
-                <Text
-                  style={{
-                    color: apiKeyInput.trim() ? colors.sage : colors.warning,
-                    fontWeight: "600",
-                  }}
-                >
-                  {apiKeyInput.trim() ? maskApiKey(apiKeyInput) : "No key configured"}
-                </Text>
+                {apiKeyInput.trim()
+                  ? maskApiKey(apiKeyInput)
+                  : "No API key saved yet"}
               </Text>
             </View>
 
-            <Text style={styles.fieldLabel}>GROQ SECRET KEY</Text>
             <View style={styles.keyInputWrap}>
               <TextInput
                 value={apiKeyInput}
                 onChangeText={(val) => {
                   setApiKeyInput(val);
-                  if (keyStatus.type !== "idle") setKeyStatus({ type: "idle", message: "" });
+                  if (keyStatus.type !== "idle")
+                    setKeyStatus({ type: "idle", message: "" });
                 }}
                 placeholder="gsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
                 placeholderTextColor={colors.subtle}
@@ -274,7 +297,6 @@ export function SettingsModal({
               <Pressable
                 onPress={() => setShowKey((s) => !s)}
                 style={styles.inputIconBtn}
-                accessibilityLabel={showKey ? "Hide API key" : "Show API key"}
               >
                 {showKey ? (
                   <EyeOff size={18} color={colors.muted} />
@@ -287,16 +309,22 @@ export function SettingsModal({
             <View style={styles.keyActionRow}>
               <Pressable
                 onPress={handlePasteKey}
-                style={({ pressed }) => [styles.secondarySmallBtn, pressed && styles.pressed]}
+                style={({ pressed }) => [
+                  styles.secondarySmallBtn,
+                  pressed && styles.pressed,
+                ]}
               >
                 <ClipboardPaste size={14} color={colors.textSecondary} />
-                <Text style={styles.secondarySmallBtnText}>Paste Key</Text>
+                <Text style={styles.secondarySmallBtnText}>Paste</Text>
               </Pressable>
 
               {apiKeyInput.length > 0 && (
                 <Pressable
                   onPress={handleClearKey}
-                  style={({ pressed }) => [styles.dangerSmallBtn, pressed && styles.pressed]}
+                  style={({ pressed }) => [
+                    styles.dangerSmallBtn,
+                    pressed && styles.pressed,
+                  ]}
                 >
                   <Trash2 size={14} color={colors.danger} />
                   <Text style={styles.dangerSmallBtnText}>Clear</Text>
@@ -305,10 +333,13 @@ export function SettingsModal({
 
               <Pressable
                 onPress={() => Linking.openURL("https://console.groq.com/keys")}
-                style={({ pressed }) => [styles.linkSmallBtn, pressed && styles.pressed]}
+                style={({ pressed }) => [
+                  styles.linkSmallBtn,
+                  pressed && styles.pressed,
+                ]}
               >
-                <Text style={styles.linkSmallBtnText}>Get Free Groq Key</Text>
-                <ExternalLink size={13} color={colors.accent} />
+                <Text style={styles.linkSmallBtnText}>Get Groq Key</Text>
+                <ExternalLink size={13} color={colors.sky} />
               </Pressable>
             </View>
 
@@ -322,12 +353,12 @@ export function SettingsModal({
               ]}
             >
               {verifyingKey ? (
-                <ActivityIndicator size="small" color={colors.ctaText} />
+                <ActivityIndicator size="small" color="#062118" />
               ) : (
-                <CheckCircle2 size={17} color={colors.ctaText} />
+                <CheckCircle2 size={17} color="#062118" />
               )}
               <Text style={styles.verifyBtnText}>
-                {verifyingKey ? "Verifying with Groq…" : "Verify & Save Key"}
+                {verifyingKey ? "Verifying…" : "Verify & Save Key"}
               </Text>
             </Pressable>
 
@@ -352,21 +383,21 @@ export function SettingsModal({
             ) : null}
           </View>
 
-          {/* SECTION 2: MODEL SELECTION */}
+          {/* MODEL SELECTION */}
           <View style={styles.card}>
             <View style={styles.cardHeaderRow}>
-              <View style={styles.iconBadgeSage}>
-                <Cpu size={18} color={colors.sage} />
+              <View style={styles.iconBadgeCoral}>
+                <Cpu size={18} color={colors.accent} />
               </View>
               <View style={styles.cardHeaderText}>
-                <Text style={styles.cardTitle}>Groq AI Models</Text>
+                <Text style={styles.cardTitle}>AI Models</Text>
                 <Text style={styles.cardSubtitle}>
-                  Chat aur image analysis ke liye model choose karein.
+                  Select your preferred Groq chat & vision models.
                 </Text>
               </View>
             </View>
 
-            <Text style={styles.fieldLabel}>PRIMARY CHAT MODEL</Text>
+            <Text style={styles.sectionSubLabel}>Chat & Tool Calling Model</Text>
             <View style={styles.modelList}>
               {models.slice(0, 12).map((model) => {
                 const active = selectedModel === model.id;
@@ -374,27 +405,37 @@ export function SettingsModal({
                   <Pressable
                     key={model.id}
                     onPress={() => setSelectedModel(model.id)}
-                    style={[styles.modelOption, active && styles.modelOptionActive]}
+                    style={[
+                      styles.modelOption,
+                      active && styles.modelOptionActive,
+                    ]}
                   >
                     <View style={styles.modelOptionInfo}>
                       <View style={styles.modelTitleRow}>
                         <Text
-                          style={[styles.modelName, active && styles.modelNameActive]}
+                          style={[
+                            styles.modelName,
+                            active && styles.modelNameActive,
+                          ]}
                           numberOfLines={1}
                         >
                           {model.label}
                         </Text>
                         {model.supportsVision && (
                           <View style={styles.visionBadge}>
-                            <Sparkles size={10} color={colors.accent} />
-                            <Text style={styles.visionBadgeText}>VISION</Text>
+                            <Text style={styles.visionBadgeText}>Vision</Text>
                           </View>
                         )}
                       </View>
                       <Text style={styles.modelIdText}>{model.id}</Text>
                     </View>
-                    <View style={[styles.radioOuter, active && styles.radioOuterActive]}>
-                      {active && <Check size={12} color={colors.ctaText} />}
+                    <View
+                      style={[
+                        styles.radioOuter,
+                        active && styles.radioOuterActive,
+                      ]}
+                    >
+                      {active && <Check size={12} color="#FFFFFF" />}
                     </View>
                   </Pressable>
                 );
@@ -403,8 +444,8 @@ export function SettingsModal({
 
             {visionModels.length > 0 && (
               <>
-                <Text style={[styles.fieldLabel, { marginTop: 18 }]}>
-                  AUTO-VISION MODEL (FOR IMAGES)
+                <Text style={[styles.sectionSubLabel, { marginTop: 16 }]}>
+                  Image Vision Model
                 </Text>
                 <View style={styles.modelList}>
                   {visionModels.map((model) => {
@@ -413,19 +454,30 @@ export function SettingsModal({
                       <Pressable
                         key={`vis-${model.id}`}
                         onPress={() => setSelectedVisionModel(model.id)}
-                        style={[styles.modelOption, active && styles.modelOptionActive]}
+                        style={[
+                          styles.modelOption,
+                          active && styles.modelOptionActive,
+                        ]}
                       >
                         <View style={styles.modelOptionInfo}>
                           <Text
-                            style={[styles.modelName, active && styles.modelNameActive]}
+                            style={[
+                              styles.modelName,
+                              active && styles.modelNameActive,
+                            ]}
                             numberOfLines={1}
                           >
                             {model.label}
                           </Text>
                           <Text style={styles.modelIdText}>{model.id}</Text>
                         </View>
-                        <View style={[styles.radioOuter, active && styles.radioOuterActive]}>
-                          {active && <Check size={12} color={colors.ctaText} />}
+                        <View
+                          style={[
+                            styles.radioOuter,
+                            active && styles.radioOuterActive,
+                          ]}
+                        >
+                          {active && <Check size={12} color="#FFFFFF" />}
                         </View>
                       </Pressable>
                     );
@@ -435,21 +487,20 @@ export function SettingsModal({
             )}
           </View>
 
-          {/* SECTION 3: BACKEND SERVER CONNECTION */}
+          {/* BACKEND SERVER */}
           <View style={styles.card}>
             <View style={styles.cardHeaderRow}>
-              <View style={styles.iconBadgeAccent}>
-                <Server size={18} color={colors.accent} />
+              <View style={styles.iconBadgeSky}>
+                <Server size={18} color={colors.sky} />
               </View>
               <View style={styles.cardHeaderText}>
-                <Text style={styles.cardTitle}>Friday Backend Server</Text>
+                <Text style={styles.cardTitle}>Backend Server</Text>
                 <Text style={styles.cardSubtitle}>
-                  Leave blank to auto-detect ({autoUrl}), or enter your PC LAN IP / deployed server URL.
+                  Auto-detected: {autoUrl}
                 </Text>
               </View>
             </View>
 
-            <Text style={styles.fieldLabel}>BACKEND BASE URL (OPTIONAL)</Text>
             <TextInput
               value={backendUrlInput}
               onChangeText={(val) => {
@@ -489,10 +540,13 @@ export function SettingsModal({
                     setBackendUrlInput("");
                     setBackendTestMsg({ type: "idle", message: "" });
                   }}
-                  style={({ pressed }) => [styles.secondarySmallBtn, pressed && styles.pressed]}
+                  style={({ pressed }) => [
+                    styles.secondarySmallBtn,
+                    pressed && styles.pressed,
+                  ]}
                 >
                   <RefreshCw size={13} color={colors.muted} />
-                  <Text style={styles.secondarySmallBtnText}>Reset to Auto</Text>
+                  <Text style={styles.secondarySmallBtnText}>Reset</Text>
                 </Pressable>
               )}
             </View>
@@ -519,8 +573,7 @@ export function SettingsModal({
           </View>
         </ScrollView>
 
-        {/* Sticky Footer Save Button */}
-        <View style={styles.footer}>
+        <View style={[styles.footer, { paddingHorizontal: horizontalPad }]}>
           <Pressable
             onPress={handleSaveAll}
             disabled={saving}
@@ -550,27 +603,24 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: colors.line,
-  },
-  headerEyebrow: {
-    fontSize: 9,
-    letterSpacing: 1.6,
-    color: colors.accent,
-    fontWeight: "600",
+    borderBottomColor: colors.lineSubtle,
   },
   headerTitle: {
     fontSize: 20,
-    fontWeight: "600",
+    fontWeight: "700",
     color: colors.text,
+  },
+  headerSub: {
+    fontSize: 12,
+    color: colors.muted,
     marginTop: 2,
   },
   closeBtn: {
     width: 38,
     height: 38,
-    borderRadius: 10,
+    borderRadius: 11,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.line,
@@ -581,40 +631,50 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    padding: 16,
+    paddingTop: 16,
     gap: 16,
     paddingBottom: 32,
   },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 16,
     borderWidth: 1,
     borderColor: colors.line,
   },
   cardHeaderRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: 12,
     marginBottom: 14,
   },
-  iconBadgeAccent: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+  iconBadgeAmber: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    backgroundColor: colors.warningBg,
+    borderWidth: 1,
+    borderColor: colors.warningBorder,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  iconBadgeCoral: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
     backgroundColor: colors.accentSoft,
     borderWidth: 1,
     borderColor: colors.accentBorder,
     alignItems: "center",
     justifyContent: "center",
   },
-  iconBadgeSage: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: colors.sageSoft,
+  iconBadgeSky: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    backgroundColor: colors.skySoft,
     borderWidth: 1,
-    borderColor: colors.sageBorder,
+    borderColor: colors.skyBorder,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -622,15 +682,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cardTitle: {
-    fontSize: 15,
-    fontWeight: "600",
+    fontSize: 15.5,
+    fontWeight: "700",
     color: colors.text,
   },
   cardSubtitle: {
-    fontSize: 12,
+    fontSize: 12.5,
     color: colors.muted,
-    lineHeight: 18,
-    marginTop: 3,
+    marginTop: 2,
   },
   currentKeyBanner: {
     flexDirection: "row",
@@ -639,37 +698,37 @@ const styles = StyleSheet.create({
     backgroundColor: colors.sidebar,
     paddingHorizontal: 12,
     paddingVertical: 9,
-    borderRadius: 9,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.lineSubtle,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   currentKeyText: {
-    fontSize: 12,
-    color: colors.muted,
-  },
-  fieldLabel: {
-    fontSize: 10,
-    letterSpacing: 1.3,
-    color: colors.muted,
+    fontSize: 12.5,
+    color: colors.textSecondary,
     fontWeight: "600",
+  },
+  sectionSubLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.muted,
     marginBottom: 8,
   },
   keyInputWrap: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: colors.sidebar,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.lineStrong,
-    paddingLeft: 12,
+    paddingLeft: 13,
     paddingRight: 6,
   },
   keyInput: {
     flex: 1,
     height: 46,
     color: colors.text,
-    fontSize: 13,
+    fontSize: 13.5,
   },
   inputIconBtn: {
     width: 38,
@@ -688,9 +747,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingHorizontal: 11,
+    paddingHorizontal: 12,
     paddingVertical: 7,
-    borderRadius: 8,
+    borderRadius: 9,
     backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
     borderColor: colors.line,
@@ -698,15 +757,15 @@ const styles = StyleSheet.create({
   secondarySmallBtnText: {
     fontSize: 12,
     color: colors.textSecondary,
-    fontWeight: "500",
+    fontWeight: "600",
   },
   dangerSmallBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    paddingHorizontal: 11,
+    paddingHorizontal: 12,
     paddingVertical: 7,
-    borderRadius: 8,
+    borderRadius: 9,
     backgroundColor: colors.dangerBg,
     borderWidth: 1,
     borderColor: colors.dangerBorder,
@@ -714,7 +773,7 @@ const styles = StyleSheet.create({
   dangerSmallBtnText: {
     fontSize: 12,
     color: colors.danger,
-    fontWeight: "500",
+    fontWeight: "600",
   },
   linkSmallBtn: {
     flexDirection: "row",
@@ -725,29 +784,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   linkSmallBtnText: {
-    fontSize: 12,
-    color: colors.accent,
-    fontWeight: "500",
+    fontSize: 12.5,
+    color: colors.sky,
+    fontWeight: "600",
   },
   verifyBtn: {
     marginTop: 14,
-    height: 44,
-    borderRadius: 10,
-    backgroundColor: colors.ctaBg,
+    height: 45,
+    borderRadius: 12,
+    backgroundColor: colors.sage,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
   },
   verifyBtnText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: colors.ctaText,
+    fontSize: 13.5,
+    fontWeight: "700",
+    color: "#062118",
   },
   feedbackBox: {
     marginTop: 12,
     padding: 11,
-    borderRadius: 9,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.line,
     backgroundColor: colors.sidebar,
@@ -761,9 +820,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.dangerBg,
   },
   feedbackText: {
-    fontSize: 12,
+    fontSize: 12.5,
     color: colors.textSecondary,
-    lineHeight: 17,
+    lineHeight: 18,
   },
   modelList: {
     gap: 8,
@@ -773,7 +832,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     padding: 12,
-    borderRadius: 10,
+    borderRadius: 12,
     backgroundColor: colors.sidebar,
     borderWidth: 1,
     borderColor: colors.lineSubtle,
@@ -781,7 +840,7 @@ const styles = StyleSheet.create({
   },
   modelOptionActive: {
     backgroundColor: colors.surfaceElevated,
-    borderColor: colors.sageBorder,
+    borderColor: colors.accentBorder,
   },
   modelOptionInfo: {
     flex: 1,
@@ -793,14 +852,14 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
   },
   modelName: {
-    fontSize: 13,
+    fontSize: 13.5,
     color: colors.textSecondary,
     fontWeight: "500",
     flexShrink: 1,
   },
   modelNameActive: {
     color: colors.text,
-    fontWeight: "600",
+    fontWeight: "700",
   },
   modelIdText: {
     fontSize: 11,
@@ -808,21 +867,17 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   visionBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 6,
+    paddingHorizontal: 7,
     paddingVertical: 2,
-    borderRadius: 5,
-    backgroundColor: colors.accentSoft,
+    borderRadius: 6,
+    backgroundColor: colors.skySoft,
     borderWidth: 1,
-    borderColor: colors.accentBorder,
+    borderColor: colors.skyBorder,
   },
   visionBadgeText: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: "700",
-    color: colors.accent,
-    letterSpacing: 0.6,
+    color: colors.sky,
   },
   radioOuter: {
     width: 22,
@@ -834,18 +889,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   radioOuterActive: {
-    backgroundColor: colors.sage,
-    borderColor: colors.sage,
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
   },
   urlInput: {
-    height: 45,
+    height: 46,
     backgroundColor: colors.sidebar,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.lineStrong,
-    paddingHorizontal: 12,
+    paddingHorizontal: 13,
     color: colors.text,
-    fontSize: 13,
+    fontSize: 13.5,
   },
   backendBtnRow: {
     flexDirection: "row",
@@ -859,26 +914,25 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 14,
     height: 40,
-    borderRadius: 9,
+    borderRadius: 10,
     backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
     borderColor: colors.lineStrong,
   },
   secondaryBtnText: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: "600",
     color: colors.text,
   },
   footer: {
-    paddingHorizontal: 16,
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: colors.line,
+    borderTopColor: colors.lineSubtle,
     backgroundColor: colors.bg,
   },
   saveAllBtn: {
     height: 48,
-    borderRadius: 11,
+    borderRadius: 13,
     backgroundColor: colors.ctaBg,
     flexDirection: "row",
     alignItems: "center",
@@ -886,7 +940,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   saveAllBtnText: {
-    fontSize: 14,
+    fontSize: 14.5,
     fontWeight: "700",
     color: colors.ctaText,
   },

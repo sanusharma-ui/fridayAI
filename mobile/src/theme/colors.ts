@@ -1,31 +1,75 @@
 export const colors = {
-  bg: "#141615",
-  sidebar: "#101211",
-  surface: "#1c1e1c",
-  surfaceElevated: "#222620",
-  surfaceHover: "#282d25",
-  userBubble: "#242a20",
-  codeBg: "#111311",
-  codeHeader: "#191c18",
+  // Deep Obsidian Canvas & Surfaces
+  bg: "#0B0E13",
+  sidebar: "#0F131A",
+  surface: "#151A23",
+  surfaceElevated: "#1C2330",
+  surfaceHover: "#242D3D",
+
+  // User Bubble (Rich Cobalt Slate)
+  userBubble: "#1E3658",
+  userBubbleBorder: "rgba(96, 152, 235, 0.32)",
+
+  // Code & Table Surfaces
+  codeBg: "#0D1117",
+  codeHeader: "#141A24",
+
+  // Borders & Dividers
   line: "rgba(255, 255, 255, 0.08)",
   lineSubtle: "rgba(255, 255, 255, 0.05)",
-  lineStrong: "rgba(184, 193, 157, 0.22)",
-  text: "#eae7de",
-  textSecondary: "#c8ccbF",
-  muted: "#969a90",
-  subtle: "#787f72",
-  accent: "#d9b48d",
-  accentSoft: "rgba(217, 180, 141, 0.12)",
-  accentBorder: "rgba(217, 180, 141, 0.28)",
-  sage: "#a6b99a",
-  sageSoft: "rgba(166, 185, 154, 0.14)",
-  sageBorder: "rgba(166, 185, 154, 0.3)",
-  ctaBg: "#d7ddca",
-  ctaText: "#252a22",
-  danger: "#edac97",
-  dangerBg: "rgba(237, 172, 151, 0.12)",
-  dangerBorder: "rgba(237, 172, 151, 0.28)",
-  warning: "#d8be82",
-  warningBg: "rgba(216, 190, 130, 0.12)",
-  overlay: "rgba(0, 0, 0, 0.68)",
+  lineStrong: "rgba(255, 255, 255, 0.15)",
+
+  // Typography
+  text: "#F3F5F8",
+  textSecondary: "#C7CFD9",
+  muted: "#8B95A5",
+  subtle: "#647082",
+
+  // Brand Primary: Warm Terracotta Coral
+  accent: "#F27D52",
+  accentSoft: "rgba(242, 125, 82, 0.14)",
+  accentBorder: "rgba(242, 125, 82, 0.34)",
+
+  // Emerald Mint (Calls, Receivable Money, Verified, Online)
+  sage: "#2DD4A0",
+  sageSoft: "rgba(45, 212, 160, 0.13)",
+  sageBorder: "rgba(45, 212, 160, 0.32)",
+
+  // Sky Blue (Contacts, SMS, Links, Info)
+  sky: "#58A6FF",
+  skySoft: "rgba(88, 166, 255, 0.13)",
+  skyBorder: "rgba(88, 166, 255, 0.32)",
+
+  // Warm Amber (Birthdays, Reminders, Warnings)
+  warning: "#F5B041",
+  warningBg: "rgba(245, 176, 65, 0.13)",
+  warningBorder: "rgba(245, 176, 65, 0.32)",
+
+  // Rose Coral (Payable Dues, Stop, Delete, Errors)
+  danger: "#F87171",
+  dangerBg: "rgba(248, 113, 113, 0.13)",
+  dangerBorder: "rgba(248, 113, 113, 0.32)",
+
+  // Primary CTA Buttons
+  ctaBg: "#F27D52",
+  ctaText: "#FFFFFF",
+
+  overlay: "rgba(4, 6, 10, 0.74)",
 } as const;
+
+const AVATAR_PALETTES = [
+  { bg: "rgba(242, 125, 82, 0.18)", border: "rgba(242, 125, 82, 0.38)", text: "#F6936E" },
+  { bg: "rgba(88, 166, 255, 0.18)", border: "rgba(88, 166, 255, 0.38)", text: "#74B4FF" },
+  { bg: "rgba(45, 212, 160, 0.18)", border: "rgba(45, 212, 160, 0.38)", text: "#4CE0B3" },
+  { bg: "rgba(245, 176, 65, 0.18)", border: "rgba(245, 176, 65, 0.38)", text: "#F7C065" },
+  { bg: "rgba(244, 114, 182, 0.18)", border: "rgba(244, 114, 182, 0.38)", text: "#F68BC2" },
+  { bg: "rgba(56, 189, 248, 0.18)", border: "rgba(56, 189, 248, 0.38)", text: "#67CEF9" },
+] as const;
+
+export function getAvatarPalette(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return AVATAR_PALETTES[Math.abs(hash) % AVATAR_PALETTES.length];
+}

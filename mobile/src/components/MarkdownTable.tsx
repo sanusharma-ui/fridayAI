@@ -63,8 +63,7 @@ export function MarkdownTable({ table, renderInline }: MarkdownTableProps) {
         const cellLen = (row[colIdx] || "").replace(/[*`~]/g, "").length;
         if (cellLen > maxChars) maxChars = cellLen;
       }
-      // Responsive bounded column widths (min 105px, max 250px so long descriptions wrap cleanly!)
-      return Math.max(105, Math.min(250, maxChars * 8 + 28));
+      return Math.max(108, Math.min(250, maxChars * 8 + 28));
     });
   }, [table]);
 
@@ -84,9 +83,9 @@ export function MarkdownTable({ table, renderInline }: MarkdownTableProps) {
     <View style={styles.wrapper}>
       <View style={styles.topStrip}>
         <View style={styles.topLeft}>
-          <Table2 size={13} color={colors.sage} />
+          <Table2 size={13} color={colors.sky} />
           <Text style={styles.topTitle}>
-            TABLE · {table.rows.length} {table.rows.length === 1 ? "ROW" : "ROWS"}
+            Table · {table.rows.length} {table.rows.length === 1 ? "row" : "rows"}
           </Text>
         </View>
         <Pressable onPress={handleCopyTable} style={styles.copyBtn} hitSlop={6}>
@@ -103,7 +102,6 @@ export function MarkdownTable({ table, renderInline }: MarkdownTableProps) {
 
       <ScrollView horizontal showsHorizontalScrollIndicator={true}>
         <View>
-          {/* Header Row */}
           <View style={styles.headerRow}>
             {table.headers.map((header, colIdx) => (
               <View
@@ -128,7 +126,6 @@ export function MarkdownTable({ table, renderInline }: MarkdownTableProps) {
             ))}
           </View>
 
-          {/* Body Rows */}
           {table.rows.map((row, rowIdx) => (
             <View
               key={`tr-${rowIdx}`}
@@ -168,7 +165,7 @@ export function MarkdownTable({ table, renderInline }: MarkdownTableProps) {
 
 const styles = StyleSheet.create({
   wrapper: {
-    borderRadius: 12,
+    borderRadius: 13,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: colors.lineStrong,
@@ -191,10 +188,9 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   topTitle: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 1,
-    color: colors.muted,
+    fontSize: 11.5,
+    fontWeight: "600",
+    color: colors.textSecondary,
   },
   copyBtn: {
     flexDirection: "row",
@@ -202,30 +198,30 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 6,
+    borderRadius: 7,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.lineSubtle,
   },
   copyText: {
     fontSize: 11,
-    fontWeight: "500",
+    fontWeight: "600",
     color: colors.muted,
   },
   headerRow: {
     flexDirection: "row",
-    backgroundColor: "#1d221c",
+    backgroundColor: "#172131",
     borderBottomWidth: 1,
     borderBottomColor: colors.lineStrong,
   },
   bodyRow: {
     flexDirection: "row",
-    backgroundColor: "#141714",
+    backgroundColor: "#0E131B",
     borderBottomWidth: 1,
     borderBottomColor: colors.lineSubtle,
   },
   bodyRowAlt: {
-    backgroundColor: "#181c18",
+    backgroundColor: "#131924",
   },
   lastRow: {
     borderBottomWidth: 0,

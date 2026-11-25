@@ -15,15 +15,17 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import {
   ArrowDown,
   ArrowUp,
+  ChevronDown,
   FileText,
   Image as ImageIcon,
   KeyRound,
-  Paperclip,
+  Plus,
   RefreshCw,
   Square,
   WifiOff,
   X,
 } from "lucide-react-native";
+import { AmbientGlow } from "./src/components/AmbientGlow";
 import { ComposerAttachmentChip } from "./src/components/AttachmentChips";
 import { ContactsModal } from "./src/components/ContactsModal";
 import { ImagePreviewModal } from "./src/components/ImagePreviewModal";
@@ -53,6 +55,7 @@ import {
   executeClientToolCalls,
 } from "./src/services/toolExecutor";
 import { colors } from "./src/theme/colors";
+import { useResponsive } from "./src/theme/responsive";
 import type {
   AgentLoopMessage,
   AppSettings,
@@ -92,11 +95,22 @@ function makeConversation(
   };
 }
 
+function shortModelLabel(id: string): string {
+  const parts = id.split("/");
+  return parts[parts.length - 1];
+}
+
 function FridayWorkspace() {
+  const { horizontalPad, contentMaxWidth } = useResponsive();
+
   const [hydrated, setHydrated] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [contactsCount, setContactsCount] = useState(0);
+  const [vaultStats, setVaultStats] = useState({
+    contactsCount: 0,
+    totalPayable: 0,
+    totalReceivable: 0,
+  });
 
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [availableModels, setAvailableModels] =
@@ -105,6 +119,7 @@ function FridayWorkspace() {
   const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
 
   const [draft, setDraft] = useState("");
+  const [inputFocused, setInputFocused] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [pickingFiles, setPickingFiles] = useState(false);
@@ -124,6 +139,7 @@ function FridayWorkspace() {
 
   const activeConversation =
     conversations.find((c) => c.id === activeId) || null;
+  const isHome = !activeConversation?.messages.length;
   const isStreamingAny = pendingChatId !== null;
   const hasUsableKey = Boolean(settings.groqApiKey.trim() || hasServerKey);
 
@@ -137,7 +153,11 @@ function FridayWorkspace() {
   const refreshContactsSummary = useCallback(async () => {
     try {
       const summary = await getContactsDashboardSummary();
-      setContactsCount(summary.contactsCount);
+      setVaultStats({
+        contactsCount: summary.contactsCount,
+        totalPayable: summary.totalPayable,
+        totalReceivable: summary.totalReceivable,
+      });
     } catch {
       // Ignore initial DB read error
     }
@@ -518,7 +538,6 @@ function FridayWorkspace() {
     try {
       const agentMessages: AgentLoopMessage[] = [];
 
-      // Multi-Step Agentic Tool Execution Loop (Seamless SQLite + Call/SMS Confirmation + Normal Chat)
       for (let round = 0; round < MAX_AGENT_TOOL_ROUNDS; round++) {
         if (abortController.signal.aborted) break;
 
@@ -576,7 +595,6 @@ function FridayWorkspace() {
               rawReasoning += delta;
             },
             onContentDelta: (delta) => {
-              // Strip accidental raw <function=...> text if a model emitted one inline
               const cleanDelta = delta.replace(/<function=[\s\S]*$/g, "");
               if (cleanDelta) {
                 rawReceivedContent += cleanDelta;
@@ -595,12 +613,10 @@ function FridayWorkspace() {
         );
 
         if (pendingRoundToolCalls.length === 0 || abortController.signal.aborted) {
-          // Final text answer completed!
           patchAssistantMessage({ activeToolLabel: undefined });
           break;
         }
 
-        // Clean any raw `<function=...>` tag if model leaked one before tool call
         if (rawReceivedContent.includes("<function=")) {
           rawReceivedContent = rawReceivedContent
             .replace(/<function=[\s\S]*?<\/function>/g, "")
@@ -610,13 +626,11 @@ function FridayWorkspace() {
           rawReceivedContent = `${rawReceivedContent.trim()}\n\n`;
         }
 
-        // Show live tool status pill in Friday's bubble
         const activityLabel = describeToolActivity(
           pendingRoundToolCalls[0].name
         );
         patchAssistantMessage({ activeToolLabel: activityLabel });
 
-        // Execute tools locally against SQLite / Android Confirmation Card builder
         const executed = await executeClientToolCalls(pendingRoundToolCalls);
 
         if (executed.pendingActions.length > 0) {
@@ -637,7 +651,6 @@ function FridayWorkspace() {
           scrollToBottom(true);
         }
 
-        // Append OpenAI-compatible assistant tool_calls turn + tool results for next round
         agentMessages.push({
           role: "assistant",
           content: roundAssistantText.trim() || null,
@@ -663,7 +676,6 @@ function FridayWorkspace() {
       patchAssistantMessage({ activeToolLabel: undefined });
       totalDurationMs = Date.now() - overallStartedAt;
 
-      // Fallback message if model prepared an action card without extra prose
       if (!rawReceivedContent.trim() && collectedActions.length > 0) {
         const firstAct = collectedActions[0];
         rawReceivedContent =
@@ -761,23 +773,29 @@ function FridayWorkspace() {
     .reverse()
     .find((m) => m.role === "assistant")?.id;
 
+  const canSend =
+    (draft.trim().length > 0 || attachments.length > 0) && !pickingFiles;
+
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
       <StatusBar style="light" />
+      <AmbientGlow />
 
       <TopBar
-        title={activeConversation?.title || "New conversation"}
+        title={activeConversation?.title || "Friday"}
+        isHome={isHome}
         connectionState={connectionState}
         hasApiKey={hasUsableKey}
-        contactsCount={contactsCount}
+        contactsCount={vaultStats.contactsCount}
         onOpenDrawer={() => setDrawerOpen(true)}
+        onNewChat={handleNewChat}
         onOpenContacts={() => setContactsOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
       />
 
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 4 : 0}
       >
         <View style={styles.flex}>
@@ -786,7 +804,7 @@ function FridayWorkspace() {
             style={styles.flex}
             contentContainerStyle={[
               styles.scrollContent,
-              !activeConversation?.messages.length && styles.scrollWelcome,
+              isHome && styles.scrollWelcome,
             ]}
             keyboardShouldPersistTaps="handled"
             onScroll={(e) => {
@@ -799,23 +817,33 @@ function FridayWorkspace() {
             }}
             scrollEventThrottle={32}
           >
-            {!activeConversation?.messages.length ? (
+            {isHome ? (
               <WelcomeView
                 hasApiKey={hasUsableKey}
                 disabled={isStreamingAny}
+                contactsCount={vaultStats.contactsCount}
+                totalPayable={vaultStats.totalPayable}
+                totalReceivable={vaultStats.totalReceivable}
                 onSelectPrompt={(prompt) =>
                   void handleSend({ overrideText: prompt })
                 }
+                onOpenContacts={() => setContactsOpen(true)}
                 onOpenSettings={() => setSettingsOpen(true)}
               />
             ) : (
-              <View style={styles.streamWrap}>
-                <View style={styles.streamIntro}>
-                  <View style={styles.introLine} />
-                  <Text style={styles.introText}>CONVERSATION</Text>
-                  <View style={styles.introLine} />
-                </View>
-
+              <View
+                style={[
+                  styles.streamWrap,
+                  { paddingHorizontal: horizontalPad },
+                  contentMaxWidth
+                    ? {
+                        maxWidth: contentMaxWidth,
+                        alignSelf: "center",
+                        width: "100%",
+                      }
+                    : null,
+                ]}
+              >
                 {activeConversation.messages.map((msg) => (
                   <MessageBubble
                     key={msg.id}
@@ -842,7 +870,7 @@ function FridayWorkspace() {
             )}
           </ScrollView>
 
-          {showScrollBottom && activeConversation && (
+          {showScrollBottom && !isHome && (
             <Pressable
               onPress={() => {
                 userScrolledUpRef.current = false;
@@ -856,8 +884,16 @@ function FridayWorkspace() {
           )}
         </View>
 
-        {/* Single Unified Smart Composer */}
-        <View style={styles.composerOuter}>
+        {/* Single Unified Composer Dock */}
+        <View
+          style={[
+            styles.composerOuter,
+            { paddingHorizontal: Math.max(10, horizontalPad - 4) },
+            contentMaxWidth
+              ? { maxWidth: contentMaxWidth, alignSelf: "center", width: "100%" }
+              : null,
+          ]}
+        >
           {error ? (
             <View style={styles.errorBanner}>
               <View style={styles.errorTextRow}>
@@ -872,9 +908,12 @@ function FridayWorkspace() {
                     onPress={() => setSettingsOpen(true)}
                     style={styles.errorActionBtn}
                   >
-                    <KeyRound size={12} color={colors.accent} />
+                    <KeyRound size={12} color={colors.warning} />
                     <Text
-                      style={[styles.errorActionLabel, { color: colors.accent }]}
+                      style={[
+                        styles.errorActionLabel,
+                        { color: colors.warning },
+                      ]}
                     >
                       Settings
                     </Text>
@@ -904,20 +943,24 @@ function FridayWorkspace() {
           ) : null}
 
           {showAttachMenu && (
-            <View style={styles.attachPopover}>
-              <Pressable onPress={handlePickImages} style={styles.attachOption}>
-                <ImageIcon size={17} color={colors.sage} />
-                <Text style={styles.attachOptionText}>Attach Photo / Image</Text>
+            <View style={styles.attachRowPills}>
+              <Pressable onPress={handlePickImages} style={styles.attachPill}>
+                <ImageIcon size={16} color={colors.sage} />
+                <Text style={styles.attachPillText}>Photo</Text>
               </Pressable>
-              <View style={styles.attachDivider} />
-              <Pressable onPress={handlePickPdfs} style={styles.attachOption}>
-                <FileText size={17} color={colors.accent} />
-                <Text style={styles.attachOptionText}>Attach PDF Document</Text>
+              <Pressable onPress={handlePickPdfs} style={styles.attachPill}>
+                <FileText size={16} color={colors.sky} />
+                <Text style={styles.attachPillText}>PDF Document</Text>
               </Pressable>
             </View>
           )}
 
-          <View style={styles.composerCard}>
+          <View
+            style={[
+              styles.composerCard,
+              inputFocused && styles.composerCardFocused,
+            ]}
+          >
             {attachments.length > 0 && (
               <ScrollView
                 horizontal
@@ -940,7 +983,7 @@ function FridayWorkspace() {
             {pickingFiles && (
               <View style={styles.pickingRow}>
                 <ActivityIndicator size="small" color={colors.accent} />
-                <Text style={styles.pickingText}>Preparing attachment…</Text>
+                <Text style={styles.pickingText}>Preparing file…</Text>
               </View>
             )}
 
@@ -955,19 +998,21 @@ function FridayWorkspace() {
                 ]}
                 accessibilityLabel="Attach image or PDF"
               >
-                <Paperclip
-                  size={18}
-                  color={showAttachMenu ? colors.accent : colors.muted}
+                <Plus
+                  size={19}
+                  color={showAttachMenu ? colors.accent : colors.textSecondary}
                 />
               </Pressable>
 
               <TextInput
                 value={draft}
                 onChangeText={setDraft}
+                onFocus={() => setInputFocused(true)}
+                onBlur={() => setInputFocused(false)}
                 placeholder={
                   attachments.length > 0
-                    ? "Ask Friday about attached file(s)…"
-                    : "Chat, save contacts/hisaab, or ask to call/SMS…"
+                    ? "Ask about attached file…"
+                    : "Message Friday…"
                 }
                 placeholderTextColor={colors.subtle}
                 multiline
@@ -986,7 +1031,7 @@ function FridayWorkspace() {
                   accessibilityLabel="Stop generating"
                 >
                   <Square
-                    size={14}
+                    size={13}
                     color={colors.danger}
                     fill={colors.danger}
                   />
@@ -994,14 +1039,10 @@ function FridayWorkspace() {
               ) : (
                 <Pressable
                   onPress={() => void handleSend()}
-                  disabled={
-                    (!draft.trim() && attachments.length === 0) || pickingFiles
-                  }
+                  disabled={!canSend}
                   style={({ pressed }) => [
                     styles.sendBtn,
-                    ((!draft.trim() && attachments.length === 0) ||
-                      pickingFiles) &&
-                      styles.sendBtnDisabled,
+                    !canSend && styles.sendBtnDisabled,
                     pressed && styles.pressed,
                   ]}
                   accessibilityLabel="Send message"
@@ -1009,7 +1050,7 @@ function FridayWorkspace() {
                   <ArrowUp
                     size={18}
                     color={colors.ctaText}
-                    strokeWidth={2.5}
+                    strokeWidth={2.6}
                   />
                 </Pressable>
               )}
@@ -1018,7 +1059,8 @@ function FridayWorkspace() {
             <View style={styles.composerFooter}>
               <Pressable
                 onPress={() => setSettingsOpen(true)}
-                style={styles.modelPill}
+                style={styles.modelSelector}
+                hitSlop={6}
               >
                 <View
                   style={[
@@ -1030,12 +1072,14 @@ function FridayWorkspace() {
                     },
                   ]}
                 />
-                <Text style={styles.modelPillText} numberOfLines={1}>
-                  {settings.selectedModel} · Smart Tools ON
+                <Text style={styles.modelSelectorText} numberOfLines={1}>
+                  {shortModelLabel(settings.selectedModel)}
                 </Text>
+                <ChevronDown size={12} color={colors.subtle} />
               </Pressable>
+
               {isStreamingAny ? (
-                <Text style={styles.streamingHint}>Tap ■ to stop</Text>
+                <Text style={styles.streamingHint}>Stop ■</Text>
               ) : draft.length > 3500 ? (
                 <Text style={styles.charCounter}>{draft.length}/4000</Text>
               ) : null}
@@ -1049,8 +1093,8 @@ function FridayWorkspace() {
         conversations={conversations}
         activeId={activeId}
         groqApiKey={settings.groqApiKey}
-        selectedModel={settings.selectedModel}
-        contactsCount={contactsCount}
+        selectedModel={shortModelLabel(settings.selectedModel)}
+        contactsCount={vaultStats.contactsCount}
         onClose={() => setDrawerOpen(false)}
         onNewChat={handleNewChat}
         onSelectChat={handleSelectChat}
@@ -1099,41 +1143,22 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 18,
+    paddingBottom: 16,
   },
   scrollWelcome: {
     flexGrow: 1,
     justifyContent: "center",
   },
   streamWrap: {
-    paddingHorizontal: 16,
-    paddingTop: 20,
-  },
-  streamIntro: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-    marginBottom: 24,
-  },
-  introLine: {
-    width: 32,
-    height: 1,
-    backgroundColor: colors.line,
-  },
-  introText: {
-    fontSize: 9,
-    letterSpacing: 1.6,
-    color: colors.subtle,
-    fontWeight: "600",
+    paddingTop: 18,
   },
   scrollBottomBtn: {
     position: "absolute",
     right: 16,
     bottom: 12,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
     borderColor: colors.lineStrong,
@@ -1141,16 +1166,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   composerOuter: {
-    paddingHorizontal: 12,
     paddingTop: 6,
-    paddingBottom: 10,
-    backgroundColor: colors.bg,
+    paddingBottom: 8,
   },
   errorBanner: {
     backgroundColor: colors.dangerBg,
     borderWidth: 1,
     borderColor: colors.dangerBorder,
-    borderRadius: 11,
+    borderRadius: 13,
     padding: 11,
     marginBottom: 8,
     gap: 8,
@@ -1178,7 +1201,7 @@ const styles = StyleSheet.create({
     gap: 5,
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 7,
+    borderRadius: 8,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.line,
@@ -1188,38 +1211,38 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: colors.text,
   },
-  attachPopover: {
-    backgroundColor: colors.surfaceElevated,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.lineStrong,
+  attachRowPills: {
+    flexDirection: "row",
+    gap: 8,
     marginBottom: 8,
-    overflow: "hidden",
   },
-  attachOption: {
+  attachPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 11,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
+    gap: 7,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+    borderRadius: 12,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
   },
-  attachOptionText: {
+  attachPillText: {
     fontSize: 13,
-    fontWeight: "500",
+    fontWeight: "600",
     color: colors.text,
-  },
-  attachDivider: {
-    height: 1,
-    backgroundColor: colors.line,
   },
   composerCard: {
     backgroundColor: colors.surface,
-    borderRadius: 16,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: colors.lineStrong,
     paddingHorizontal: 10,
     paddingTop: 8,
     paddingBottom: 8,
+  },
+  composerCardFocused: {
+    borderColor: colors.accentBorder,
   },
   chipsRow: {
     gap: 8,
@@ -1245,10 +1268,10 @@ const styles = StyleSheet.create({
   attachBtn: {
     width: 38,
     height: 38,
-    borderRadius: 10,
-    backgroundColor: colors.sidebar,
+    borderRadius: 19,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: colors.lineSubtle,
+    borderColor: colors.line,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1259,29 +1282,30 @@ const styles = StyleSheet.create({
   textInput: {
     flex: 1,
     minHeight: 38,
-    maxHeight: 115,
+    maxHeight: 118,
     color: colors.text,
-    fontSize: 14.5,
-    lineHeight: 20,
-    paddingHorizontal: 6,
+    fontSize: 15,
+    lineHeight: 21,
+    paddingHorizontal: 4,
     paddingTop: 8,
     paddingBottom: 8,
   },
   sendBtn: {
     width: 38,
     height: 38,
-    borderRadius: 11,
+    borderRadius: 19,
     backgroundColor: colors.ctaBg,
     alignItems: "center",
     justifyContent: "center",
   },
   sendBtnDisabled: {
-    opacity: 0.38,
+    backgroundColor: colors.surfaceElevated,
+    opacity: 0.45,
   },
   stopBtn: {
     width: 38,
     height: 38,
-    borderRadius: 11,
+    borderRadius: 19,
     backgroundColor: colors.dangerBg,
     borderWidth: 1,
     borderColor: colors.dangerBorder,
@@ -1292,10 +1316,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 7,
-    paddingHorizontal: 4,
+    marginTop: 6,
+    paddingHorizontal: 6,
   },
-  modelPill: {
+  modelSelector: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
@@ -1306,17 +1330,18 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
   },
-  modelPillText: {
-    fontSize: 11,
+  modelSelectorText: {
+    fontSize: 11.5,
     color: colors.muted,
-  },
-  streamingHint: {
-    fontSize: 10.5,
-    color: colors.danger,
     fontWeight: "500",
   },
+  streamingHint: {
+    fontSize: 11,
+    color: colors.danger,
+    fontWeight: "600",
+  },
   charCounter: {
-    fontSize: 10.5,
+    fontSize: 11,
     color: colors.warning,
   },
   pressed: {

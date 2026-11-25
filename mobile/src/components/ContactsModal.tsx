@@ -13,7 +13,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
+  ArrowDownLeft,
   ArrowLeft,
+  ArrowUpRight,
   Cake,
   Check,
   ChevronRight,
@@ -38,7 +40,8 @@ import {
   updateContactDirect,
   upsertContact,
 } from "../services/contactsDb";
-import { colors } from "../theme/colors";
+import { colors, getAvatarPalette } from "../theme/colors";
+import { useResponsive } from "../theme/responsive";
 import type {
   ContactRecord,
   MemoryCategory,
@@ -59,17 +62,17 @@ export function ContactsModal({
   onClose,
   onDataChanged,
 }: ContactsModalProps) {
+  const { horizontalPad, contentMaxWidth } = useResponsive();
+
   const [contacts, setContacts] = useState<ContactRecord[]>([]);
   const [memories, setMemories] = useState<MemoryRecord[]>([]);
   const [tab, setTab] = useState<TabMode>("contacts");
   const [query, setQuery] = useState("");
-
-  // Selected contact detail view
   const [selectedContact, setSelectedContact] = useState<ContactRecord | null>(
     null
   );
 
-  // Add / Edit Contact form state
+  // Contact Form
   const [showContactForm, setShowContactForm] = useState(false);
   const [editingContact, setEditingContact] = useState<ContactRecord | null>(
     null
@@ -80,7 +83,7 @@ export function ContactsModal({
   const [cBirthday, setCBirthday] = useState("");
   const [cNotes, setCNotes] = useState("");
 
-  // Add Memory / Hisaab form state
+  // Memory / Hisaab Form
   const [showMemoryForm, setShowMemoryForm] = useState(false);
   const [mCategory, setMCategory] = useState<MemoryCategory>("ledger");
   const [mLabel, setMLabel] = useState("");
@@ -111,7 +114,6 @@ export function ContactsModal({
     }
   }, [visible, reloadData]);
 
-  // Summary calculations
   const pendingPayable = memories
     .filter((m) => m.status === "pending" && m.direction === "payable")
     .reduce((sum, m) => sum + (m.amount || 0), 0);
@@ -201,7 +203,7 @@ export function ContactsModal({
 
   async function handleSaveMemory() {
     if (!mLabel.trim() && !mDetail.trim()) {
-      Alert.alert("Detail Required", "Label ya detail zaroor likhein.");
+      Alert.alert("Detail Required", "Title ya detail zaroor likhein.");
       return;
     }
     const parsedAmt = mAmount.trim() ? Number(mAmount.trim()) : null;
@@ -209,7 +211,7 @@ export function ContactsModal({
       contactId: selectedContact?.id,
       contactName: selectedContact?.name,
       category: mCategory,
-      label: mLabel.trim() || mCategory.toUpperCase(),
+      label: mLabel.trim() || mCategory,
       detail: mDetail.trim() || mLabel.trim(),
       amount: parsedAmt !== null && !Number.isNaN(parsedAmt) ? parsedAmt : null,
       direction:
@@ -263,10 +265,14 @@ export function ContactsModal({
       void Linking.openURL(`sms:${digits}`);
       return;
     }
-    Alert.alert("Confirm SMS", `Open SMS app for ${contact.name} (${contact.phone})?`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Open SMS", onPress: () => void Linking.openURL(`sms:${digits}`) },
-    ]);
+    Alert.alert(
+      "Confirm SMS",
+      `Open SMS app for ${contact.name} (${contact.phone})?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Open SMS", onPress: () => void Linking.openURL(`sms:${digits}`) },
+      ]
+    );
   }
 
   const qLower = query.trim().toLowerCase();
@@ -291,6 +297,13 @@ export function ContactsModal({
     ? memories.filter((m) => m.contactId === selectedContact.id)
     : [];
 
+  const responsiveContainerStyle = [
+    { paddingHorizontal: horizontalPad },
+    contentMaxWidth
+      ? { maxWidth: contentMaxWidth, alignSelf: "center" as const, width: "100%" as const }
+      : null,
+  ];
+
   return (
     <Modal
       visible={visible}
@@ -300,7 +313,7 @@ export function ContactsModal({
     >
       <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingHorizontal: horizontalPad }]}>
           {selectedContact || showContactForm || showMemoryForm ? (
             <Pressable
               onPress={() => {
@@ -314,23 +327,23 @@ export function ContactsModal({
             </Pressable>
           ) : (
             <View style={styles.headerIconBadge}>
-              <Users size={18} color={colors.accent} />
+              <Users size={18} color={colors.sky} />
             </View>
           )}
 
           <View style={styles.headerCenter}>
-            <Text style={styles.headerEyebrow}>LOCAL SQLITE VAULT</Text>
             <Text style={styles.headerTitle} numberOfLines={1}>
               {showContactForm
                 ? editingContact
                   ? "Edit Contact"
                   : "New Contact"
                 : showMemoryForm
-                ? "Add Info / Hisaab"
+                ? "Add Note or Hisaab"
                 : selectedContact
                 ? selectedContact.name
-                : "Contacts & Memories"}
+                : "Contacts & Vault"}
             </Text>
+            <Text style={styles.headerSub}>Stored privately on your phone</Text>
           </View>
 
           <Pressable onPress={onClose} style={styles.iconBtn}>
@@ -338,55 +351,55 @@ export function ContactsModal({
           </Pressable>
         </View>
 
-        {/* SUBVIEW 1: ADD / EDIT CONTACT FORM */}
+        {/* SUBVIEW 1: CONTACT FORM */}
         {showContactForm ? (
           <ScrollView
             style={styles.flex}
-            contentContainerStyle={styles.formScroll}
+            contentContainerStyle={[styles.formScroll, ...responsiveContainerStyle]}
             keyboardShouldPersistTaps="handled"
           >
-            <Text style={styles.fieldLabel}>NAME *</Text>
+            <Text style={styles.fieldLabel}>Name *</Text>
             <TextInput
               value={cName}
               onChangeText={setCName}
-              placeholder="e.g. Rahul, Mummy, Sharma ji"
+              placeholder="Rahul, Mummy, Sharma ji…"
               placeholderTextColor={colors.subtle}
               style={styles.input}
             />
 
-            <Text style={styles.fieldLabel}>PHONE NUMBER</Text>
+            <Text style={styles.fieldLabel}>Phone number</Text>
             <TextInput
               value={cPhone}
               onChangeText={setCPhone}
-              placeholder="e.g. +91 9876543210"
+              placeholder="+91 9876543210"
               placeholderTextColor={colors.subtle}
               keyboardType="phone-pad"
               style={styles.input}
             />
 
-            <Text style={styles.fieldLabel}>RELATIONSHIP / TAG</Text>
+            <Text style={styles.fieldLabel}>Relationship or tag</Text>
             <TextInput
               value={cRel}
               onChangeText={setCRel}
-              placeholder="e.g. Mother, Friend, Landlord, Shopkeeper"
+              placeholder="Mother, Friend, Landlord…"
               placeholderTextColor={colors.subtle}
               style={styles.input}
             />
 
-            <Text style={styles.fieldLabel}>BIRTHDAY</Text>
+            <Text style={styles.fieldLabel}>Birthday</Text>
             <TextInput
               value={cBirthday}
               onChangeText={setCBirthday}
-              placeholder="e.g. 14 May or 1998-05-14"
+              placeholder="14 May or 1998-05-14"
               placeholderTextColor={colors.subtle}
               style={styles.input}
             />
 
-            <Text style={styles.fieldLabel}>NOTES / EXTRA INFO</Text>
+            <Text style={styles.fieldLabel}>Notes</Text>
             <TextInput
               value={cNotes}
               onChangeText={setCNotes}
-              placeholder="Any general note about this contact…"
+              placeholder="Anything helpful to remember…"
               placeholderTextColor={colors.subtle}
               multiline
               style={[styles.input, styles.textArea]}
@@ -398,21 +411,21 @@ export function ContactsModal({
             </Pressable>
           </ScrollView>
         ) : showMemoryForm ? (
-          /* SUBVIEW 2: ADD MEMORY / HISAAB FORM */
+          /* SUBVIEW 2: MEMORY / HISAAB FORM */
           <ScrollView
             style={styles.flex}
-            contentContainerStyle={styles.formScroll}
+            contentContainerStyle={[styles.formScroll, ...responsiveContainerStyle]}
             keyboardShouldPersistTaps="handled"
           >
-            <Text style={styles.fieldLabel}>CATEGORY</Text>
+            <Text style={styles.fieldLabel}>Type</Text>
             <View style={styles.pillRow}>
               {(
                 [
                   { id: "ledger", label: "Hisaab / Money" },
-                  { id: "bill", label: "Pending Bill" },
-                  { id: "birthday", label: "Birthday / Date" },
+                  { id: "bill", label: "Bill" },
+                  { id: "birthday", label: "Birthday" },
                   { id: "note", label: "Note" },
-                  { id: "custom", label: "Custom Info" },
+                  { id: "custom", label: "Custom" },
                 ] as const
               ).map((item) => (
                 <Pressable
@@ -435,28 +448,28 @@ export function ContactsModal({
               ))}
             </View>
 
-            <Text style={styles.fieldLabel}>TITLE / LABEL *</Text>
+            <Text style={styles.fieldLabel}>Title *</Text>
             <TextInput
               value={mLabel}
               onChangeText={setMLabel}
-              placeholder="e.g. Udhaar, Electricity Bill, UPI ID, Shirt Size"
+              placeholder="Electricity Bill, Udhaar, UPI ID…"
               placeholderTextColor={colors.subtle}
               style={styles.input}
             />
 
             {(mCategory === "ledger" || mCategory === "bill") && (
               <>
-                <Text style={styles.fieldLabel}>AMOUNT (₹)</Text>
+                <Text style={styles.fieldLabel}>Amount (₹)</Text>
                 <TextInput
                   value={mAmount}
                   onChangeText={setMAmount}
-                  placeholder="e.g. 500"
+                  placeholder="500"
                   placeholderTextColor={colors.subtle}
                   keyboardType="numeric"
                   style={styles.input}
                 />
 
-                <Text style={styles.fieldLabel}>PAYMENT DIRECTION</Text>
+                <Text style={styles.fieldLabel}>Who owes whom?</Text>
                 <View style={styles.pillRow}>
                   <Pressable
                     onPress={() => setMDirection("payable")}
@@ -471,14 +484,14 @@ export function ContactsModal({
                         mDirection === "payable" && { color: colors.danger },
                       ]}
                     >
-                      Mujhe Dene Hain (Payable)
+                      Mujhe Dene Hain
                     </Text>
                   </Pressable>
                   <Pressable
                     onPress={() => setMDirection("receivable")}
                     style={[
                       styles.catChip,
-                      mDirection === "receivable" && styles.catChipActive,
+                      mDirection === "receivable" && styles.catChipEmerald,
                     ]}
                   >
                     <Text
@@ -487,27 +500,27 @@ export function ContactsModal({
                         mDirection === "receivable" && { color: colors.sage },
                       ]}
                     >
-                      Mujhe Lene Hain (Receivable)
+                      Mujhe Lene Hain
                     </Text>
                   </Pressable>
                 </View>
               </>
             )}
 
-            <Text style={styles.fieldLabel}>DATE / DUE DATE (OPTIONAL)</Text>
+            <Text style={styles.fieldLabel}>Date / Reminder (optional)</Text>
             <TextInput
               value={mDate}
               onChangeText={setMDate}
-              placeholder="e.g. 14 May, 5th of month, 2026-12-10"
+              placeholder="14 May, 5th of month…"
               placeholderTextColor={colors.subtle}
               style={styles.input}
             />
 
-            <Text style={styles.fieldLabel}>DETAIL / NOTE *</Text>
+            <Text style={styles.fieldLabel}>Details *</Text>
             <TextInput
               value={mDetail}
               onChangeText={setMDetail}
-              placeholder="Write full detail…"
+              placeholder="Write full note…"
               placeholderTextColor={colors.subtle}
               multiline
               style={[styles.input, styles.textArea]}
@@ -515,88 +528,113 @@ export function ContactsModal({
 
             <Pressable onPress={handleSaveMemory} style={styles.primaryBtn}>
               <Check size={17} color={colors.ctaText} />
-              <Text style={styles.primaryBtnText}>Save Info</Text>
+              <Text style={styles.primaryBtnText}>Save Entry</Text>
             </Pressable>
           </ScrollView>
         ) : selectedContact ? (
-          /* SUBVIEW 3: SINGLE CONTACT PROFILE & MEMORIES */
+          /* SUBVIEW 3: SINGLE CONTACT PROFILE */
           <ScrollView
             style={styles.flex}
-            contentContainerStyle={styles.detailScroll}
+            contentContainerStyle={[styles.detailScroll, ...responsiveContainerStyle]}
           >
-            <View style={styles.profileCard}>
-              <View style={styles.profileTop}>
-                <View style={styles.avatarCircle}>
-                  <Text style={styles.avatarInitial}>
-                    {selectedContact.name.charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-                <View style={styles.profileInfo}>
-                  <Text style={styles.profileName}>{selectedContact.name}</Text>
-                  {selectedContact.relationship ? (
-                    <Text style={styles.profileRel}>
-                      {selectedContact.relationship}
-                    </Text>
+            {(() => {
+              const pal = getAvatarPalette(selectedContact.name);
+              return (
+                <View style={styles.profileCard}>
+                  <View style={styles.profileTop}>
+                    <View
+                      style={[
+                        styles.avatarCircle,
+                        { backgroundColor: pal.bg, borderColor: pal.border },
+                      ]}
+                    >
+                      <Text style={[styles.avatarInitial, { color: pal.text }]}>
+                        {selectedContact.name.charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={styles.profileInfo}>
+                      <Text style={styles.profileName}>
+                        {selectedContact.name}
+                      </Text>
+                      {selectedContact.relationship ? (
+                        <Text style={styles.profileRel}>
+                          {selectedContact.relationship}
+                        </Text>
+                      ) : null}
+                      <Text style={styles.profilePhone}>
+                        {selectedContact.phone || "No phone number saved"}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {selectedContact.birthday ? (
+                    <View style={styles.metaRow}>
+                      <Cake size={15} color={colors.warning} />
+                      <Text style={styles.metaText}>
+                        Birthday · {selectedContact.birthday}
+                      </Text>
+                    </View>
                   ) : null}
-                  <Text style={styles.profilePhone}>
-                    {selectedContact.phone || "No phone number saved"}
-                  </Text>
+
+                  {selectedContact.notes ? (
+                    <View style={styles.metaRow}>
+                      <StickyNote size={15} color={colors.sky} />
+                      <Text style={styles.metaText}>
+                        {selectedContact.notes}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  <View style={styles.profileActionRow}>
+                    <Pressable
+                      onPress={() => confirmCallContact(selectedContact)}
+                      style={[styles.profileActionBtn, styles.callBtnTint]}
+                    >
+                      <PhoneCall size={15} color={colors.sage} />
+                      <Text
+                        style={[
+                          styles.profileActionText,
+                          { color: colors.sage },
+                        ]}
+                      >
+                        Call
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      onPress={() => confirmSmsContact(selectedContact)}
+                      style={[styles.profileActionBtn, styles.smsBtnTint]}
+                    >
+                      <MessageSquareText size={15} color={colors.sky} />
+                      <Text
+                        style={[styles.profileActionText, { color: colors.sky }]}
+                      >
+                        SMS
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      onPress={() => openEditContactForm(selectedContact)}
+                      style={styles.profileActionBtn}
+                    >
+                      <Pencil size={15} color={colors.textSecondary} />
+                      <Text style={styles.profileActionText}>Edit</Text>
+                    </Pressable>
+
+                    <Pressable
+                      onPress={() => confirmDeleteContact(selectedContact)}
+                      style={styles.profileDeleteBtn}
+                    >
+                      <Trash2 size={15} color={colors.danger} />
+                    </Pressable>
+                  </View>
                 </View>
-              </View>
-
-              {selectedContact.birthday ? (
-                <View style={styles.metaRow}>
-                  <Cake size={14} color={colors.accent} />
-                  <Text style={styles.metaText}>
-                    Birthday: {selectedContact.birthday}
-                  </Text>
-                </View>
-              ) : null}
-
-              {selectedContact.notes ? (
-                <View style={styles.metaRow}>
-                  <StickyNote size={14} color={colors.sage} />
-                  <Text style={styles.metaText}>{selectedContact.notes}</Text>
-                </View>
-              ) : null}
-
-              <View style={styles.profileActionRow}>
-                <Pressable
-                  onPress={() => confirmCallContact(selectedContact)}
-                  style={styles.profileActionBtn}
-                >
-                  <PhoneCall size={15} color={colors.sage} />
-                  <Text style={styles.profileActionText}>Call</Text>
-                </Pressable>
-
-                <Pressable
-                  onPress={() => confirmSmsContact(selectedContact)}
-                  style={styles.profileActionBtn}
-                >
-                  <MessageSquareText size={15} color={colors.accent} />
-                  <Text style={styles.profileActionText}>SMS</Text>
-                </Pressable>
-
-                <Pressable
-                  onPress={() => openEditContactForm(selectedContact)}
-                  style={styles.profileActionBtn}
-                >
-                  <Pencil size={15} color={colors.textSecondary} />
-                  <Text style={styles.profileActionText}>Edit</Text>
-                </Pressable>
-
-                <Pressable
-                  onPress={() => confirmDeleteContact(selectedContact)}
-                  style={styles.profileActionBtn}
-                >
-                  <Trash2 size={15} color={colors.danger} />
-                </Pressable>
-              </View>
-            </View>
+              );
+            })()}
 
             <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionHeaderLabel}>
-                SAVED INFO, HISAAB & MEMORIES ({contactMemories.length})
+              <Text style={styles.sectionHeaderTitle}>
+                Memories & Hisaab ({contactMemories.length})
               </Text>
               <Pressable
                 onPress={() => openNewMemoryForm("ledger")}
@@ -610,8 +648,8 @@ export function ContactsModal({
             {contactMemories.length === 0 ? (
               <View style={styles.emptyCard}>
                 <Text style={styles.emptyText}>
-                  No extra memories or hisaab saved for {selectedContact.name} yet.
-                  Add here or simply tell Friday in chat!
+                  No memories or balances for {selectedContact.name} yet. Tap
+                  &quot;Add Info&quot; or just tell Friday in chat!
                 </Text>
               </View>
             ) : (
@@ -627,100 +665,122 @@ export function ContactsModal({
             )}
           </ScrollView>
         ) : (
-          /* SUBVIEW 4: MAIN CONTACTS & MEMORIES DASHBOARD */
+          /* SUBVIEW 4: MAIN DASHBOARD */
           <View style={styles.flex}>
-            {/* Summary Strip */}
-            <View style={styles.summaryRow}>
-              <View style={styles.summaryBox}>
-                <Text style={styles.summaryLabel}>CONTACTS</Text>
-                <Text style={styles.summaryValue}>{contacts.length}</Text>
-              </View>
-              <View style={styles.summaryBox}>
-                <Text style={styles.summaryLabel}>DENE HAIN</Text>
-                <Text style={[styles.summaryValue, { color: colors.danger }]}>
-                  ₹{pendingPayable}
-                </Text>
-              </View>
-              <View style={styles.summaryBox}>
-                <Text style={styles.summaryLabel}>LENE HAIN</Text>
-                <Text style={[styles.summaryValue, { color: colors.sage }]}>
-                  ₹{pendingReceivable}
-                </Text>
-              </View>
-            </View>
+            <View style={responsiveContainerStyle}>
+              {/* 3 Colorful Metric Cards */}
+              <View style={styles.summaryRow}>
+                <View style={[styles.summaryBox, styles.summarySky]}>
+                  <View style={styles.summaryTopRow}>
+                    <Users size={13} color={colors.sky} />
+                    <Text style={[styles.summaryLabel, { color: colors.sky }]}>
+                      People
+                    </Text>
+                  </View>
+                  <Text style={styles.summaryValue}>{contacts.length}</Text>
+                </View>
 
-            {/* Search + Add Buttons */}
-            <View style={styles.searchBarRow}>
-              <View style={styles.searchInputWrap}>
-                <Search size={15} color={colors.muted} />
-                <TextInput
-                  value={query}
-                  onChangeText={setQuery}
-                  placeholder="Search contacts, bills, birthdays…"
-                  placeholderTextColor={colors.subtle}
-                  style={styles.searchInput}
-                />
-                {query ? (
-                  <Pressable onPress={() => setQuery("")}>
-                    <X size={14} color={colors.muted} />
-                  </Pressable>
-                ) : null}
-              </View>
-
-              <Pressable
-                onPress={() =>
-                  tab === "contacts"
-                    ? openNewContactForm()
-                    : openNewMemoryForm("ledger")
-                }
-                style={styles.addMainBtn}
-              >
-                <UserPlus size={16} color={colors.ctaText} />
-                <Text style={styles.addMainBtnText}>Add</Text>
-              </Pressable>
-            </View>
-
-            {/* Tabs */}
-            <View style={styles.tabsRow}>
-              {(
-                [
-                  { id: "contacts", label: `Contacts (${contacts.length})` },
-                  { id: "ledger", label: "Hisaab & Bills" },
-                  { id: "memories", label: `All Info (${memories.length})` },
-                ] as const
-              ).map((t) => (
-                <Pressable
-                  key={t.id}
-                  onPress={() => setTab(t.id)}
-                  style={[styles.tabBtn, tab === t.id && styles.tabBtnActive]}
-                >
-                  <Text
-                    style={[
-                      styles.tabBtnText,
-                      tab === t.id && styles.tabBtnTextActive,
-                    ]}
-                  >
-                    {t.label}
+                <View style={[styles.summaryBox, styles.summaryDanger]}>
+                  <View style={styles.summaryTopRow}>
+                    <ArrowUpRight size={13} color={colors.danger} />
+                    <Text
+                      style={[styles.summaryLabel, { color: colors.danger }]}
+                    >
+                      To Pay
+                    </Text>
+                  </View>
+                  <Text style={[styles.summaryValue, { color: colors.danger }]}>
+                    ₹{pendingPayable}
                   </Text>
+                </View>
+
+                <View style={[styles.summaryBox, styles.summaryEmerald]}>
+                  <View style={styles.summaryTopRow}>
+                    <ArrowDownLeft size={13} color={colors.sage} />
+                    <Text style={[styles.summaryLabel, { color: colors.sage }]}>
+                      To Collect
+                    </Text>
+                  </View>
+                  <Text style={[styles.summaryValue, { color: colors.sage }]}>
+                    ₹{pendingReceivable}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Search + Add */}
+              <View style={styles.searchBarRow}>
+                <View style={styles.searchInputWrap}>
+                  <Search size={15} color={colors.muted} />
+                  <TextInput
+                    value={query}
+                    onChangeText={setQuery}
+                    placeholder="Search people, bills, birthdays…"
+                    placeholderTextColor={colors.subtle}
+                    style={styles.searchInput}
+                  />
+                  {query ? (
+                    <Pressable onPress={() => setQuery("")}>
+                      <X size={14} color={colors.muted} />
+                    </Pressable>
+                  ) : null}
+                </View>
+
+                <Pressable
+                  onPress={() =>
+                    tab === "contacts"
+                      ? openNewContactForm()
+                      : openNewMemoryForm("ledger")
+                  }
+                  style={styles.addMainBtn}
+                >
+                  <UserPlus size={15} color={colors.ctaText} />
+                  <Text style={styles.addMainBtnText}>New</Text>
                 </Pressable>
-              ))}
+              </View>
+
+              {/* Segmented Pill Tabs */}
+              <View style={styles.tabsSegment}>
+                {(
+                  [
+                    { id: "contacts", label: `Contacts (${contacts.length})` },
+                    { id: "ledger", label: "Hisaab" },
+                    { id: "memories", label: `Notes (${memories.length})` },
+                  ] as const
+                ).map((t) => (
+                  <Pressable
+                    key={t.id}
+                    onPress={() => setTab(t.id)}
+                    style={[styles.tabBtn, tab === t.id && styles.tabBtnActive]}
+                  >
+                    <Text
+                      style={[
+                        styles.tabBtnText,
+                        tab === t.id && styles.tabBtnTextActive,
+                      ]}
+                    >
+                      {t.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
             </View>
 
             <ScrollView
               style={styles.flex}
-              contentContainerStyle={styles.listScroll}
+              contentContainerStyle={[styles.listScroll, ...responsiveContainerStyle]}
             >
               {tab === "contacts" ? (
                 filteredContacts.length === 0 ? (
                   <View style={styles.emptyCard}>
-                    <Text style={styles.emptyTitle}>No contacts saved yet</Text>
+                    <Text style={styles.emptyTitle}>No contacts yet</Text>
                     <Text style={styles.emptyText}>
-                      Tap &quot;Add&quot; above OR simply write in Friday chat:{"\n"}
-                      &quot;Rahul ka number 9876543210 save kar lo&quot; or &quot;Sharma ji ko 500 dene hain&quot;
+                      Tap &quot;New&quot; above, or simply tell Friday in chat:{"\n"}
+                      &quot;Rahul ka number 9876543210 save kar lo&quot;
                     </Text>
                   </View>
                 ) : (
                   filteredContacts.map((c) => {
+                    const pal = getAvatarPalette(c.name);
                     const cMems = memories.filter(
                       (m) => m.contactId === c.id && m.status !== "settled"
                     );
@@ -728,10 +788,20 @@ export function ContactsModal({
                       <Pressable
                         key={c.id}
                         onPress={() => setSelectedContact(c)}
-                        style={styles.contactCard}
+                        style={({ pressed }) => [
+                          styles.contactCard,
+                          pressed && { backgroundColor: colors.surfaceElevated },
+                        ]}
                       >
-                        <View style={styles.avatarSmall}>
-                          <Text style={styles.avatarSmallText}>
+                        <View
+                          style={[
+                            styles.avatarSmall,
+                            { backgroundColor: pal.bg, borderColor: pal.border },
+                          ]}
+                        >
+                          <Text
+                            style={[styles.avatarSmallText, { color: pal.text }]}
+                          >
                             {c.name.charAt(0).toUpperCase()}
                           </Text>
                         </View>
@@ -739,13 +809,15 @@ export function ContactsModal({
                           <View style={styles.contactCardNameRow}>
                             <Text style={styles.contactCardName}>{c.name}</Text>
                             {c.relationship ? (
-                              <Text style={styles.relPill}>{c.relationship}</Text>
+                              <Text style={styles.relPill}>
+                                {c.relationship}
+                              </Text>
                             ) : null}
                           </View>
-                          <Text style={styles.contactCardSub}>
+                          <Text style={styles.contactCardSub} numberOfLines={1}>
                             {c.phone || "No phone"}
                             {c.birthday ? ` · 🎂 ${c.birthday}` : ""}
-                            {cMems.length > 0 ? ` · ${cMems.length} info` : ""}
+                            {cMems.length > 0 ? ` · ${cMems.length} saved` : ""}
                           </Text>
                         </View>
                         <ChevronRight size={16} color={colors.subtle} />
@@ -755,9 +827,10 @@ export function ContactsModal({
                 )
               ) : filteredMemories.length === 0 ? (
                 <View style={styles.emptyCard}>
-                  <Text style={styles.emptyTitle}>No records found</Text>
+                  <Text style={styles.emptyTitle}>Nothing saved here yet</Text>
                   <Text style={styles.emptyText}>
-                    Tell Friday things like &quot;Sharma ji ko 500 rupaye dene hain&quot; or &quot;Mummy ka birthday 14 May ko hai&quot; and they will appear here automatically.
+                    Tell Friday things like &quot;Sharma ji ko 500 dene hain&quot; or
+                    &quot;Mummy ka birthday 14 May ko hai&quot; and they show up here.
                   </Text>
                 </View>
               ) : (
@@ -793,11 +866,32 @@ function MemoryItemCard({
   const isLedgerOrBill =
     memory.category === "ledger" || memory.category === "bill";
 
+  const catColor =
+    memory.category === "birthday"
+      ? colors.warning
+      : memory.category === "ledger" || memory.category === "bill"
+      ? colors.accent
+      : colors.sky;
+
+  const catBg =
+    memory.category === "birthday"
+      ? colors.warningBg
+      : memory.category === "ledger" || memory.category === "bill"
+      ? colors.accentSoft
+      : colors.skySoft;
+
   return (
     <View style={[styles.memCard, isSettled && styles.memCardSettled]}>
       <View style={styles.memTopRow}>
         <View style={styles.memTagWrap}>
-          <Text style={styles.memCatTag}>{memory.category.toUpperCase()}</Text>
+          <Text
+            style={[
+              styles.memCatTag,
+              { color: catColor, backgroundColor: catBg },
+            ]}
+          >
+            {memory.category}
+          </Text>
           {!hideContactName && memory.contactName ? (
             <Text style={styles.memContactTag}>{memory.contactName}</Text>
           ) : null}
@@ -830,9 +924,9 @@ function MemoryItemCard({
             >
               {memory.amount}{" "}
               {memory.direction === "payable"
-                ? "(Dene)"
+                ? "to pay"
                 : memory.direction === "receivable"
-                ? "(Lene)"
+                ? "to collect"
                 : ""}
             </Text>
           </View>
@@ -877,41 +971,38 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
     paddingVertical: 13,
     borderBottomWidth: 1,
-    borderBottomColor: colors.line,
+    borderBottomColor: colors.lineSubtle,
     gap: 12,
   },
   headerIconBadge: {
     width: 38,
     height: 38,
-    borderRadius: 10,
-    backgroundColor: colors.accentSoft,
+    borderRadius: 11,
+    backgroundColor: colors.skySoft,
     borderWidth: 1,
-    borderColor: colors.accentBorder,
+    borderColor: colors.skyBorder,
     alignItems: "center",
     justifyContent: "center",
   },
   headerCenter: {
     flex: 1,
   },
-  headerEyebrow: {
-    fontSize: 9,
-    letterSpacing: 1.4,
-    color: colors.accent,
-    fontWeight: "600",
-  },
   headerTitle: {
     fontSize: 18,
     fontWeight: "700",
     color: colors.text,
+  },
+  headerSub: {
+    fontSize: 11.5,
+    color: colors.muted,
     marginTop: 1,
   },
   iconBtn: {
     width: 38,
     height: 38,
-    borderRadius: 10,
+    borderRadius: 11,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.line,
@@ -921,124 +1012,131 @@ const styles = StyleSheet.create({
   summaryRow: {
     flexDirection: "row",
     gap: 8,
-    paddingHorizontal: 14,
     paddingTop: 12,
   },
   summaryBox: {
     flex: 1,
-    backgroundColor: colors.surface,
-    borderRadius: 11,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: colors.line,
     paddingVertical: 10,
     paddingHorizontal: 11,
+    gap: 4,
+  },
+  summarySky: {
+    backgroundColor: colors.skySoft,
+    borderColor: colors.skyBorder,
+  },
+  summaryDanger: {
+    backgroundColor: colors.dangerBg,
+    borderColor: colors.dangerBorder,
+  },
+  summaryEmerald: {
+    backgroundColor: colors.sageSoft,
+    borderColor: colors.sageBorder,
+  },
+  summaryTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
   },
   summaryLabel: {
-    fontSize: 9,
-    letterSpacing: 1.1,
-    color: colors.subtle,
-    fontWeight: "600",
+    fontSize: 11,
+    fontWeight: "700",
   },
   summaryValue: {
-    fontSize: 16,
-    fontWeight: "700",
+    fontSize: 17,
+    fontWeight: "800",
     color: colors.text,
-    marginTop: 3,
   },
   searchBarRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingHorizontal: 14,
-    paddingTop: 10,
+    paddingTop: 12,
   },
   searchInputWrap: {
     flex: 1,
-    height: 41,
-    borderRadius: 10,
+    height: 42,
+    borderRadius: 12,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.lineStrong,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 11,
+    paddingHorizontal: 12,
     gap: 8,
   },
   searchInput: {
     flex: 1,
     color: colors.text,
-    fontSize: 13,
+    fontSize: 13.5,
   },
   addMainBtn: {
-    height: 41,
-    paddingHorizontal: 13,
-    borderRadius: 10,
+    height: 42,
+    paddingHorizontal: 14,
+    borderRadius: 12,
     backgroundColor: colors.ctaBg,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
   },
   addMainBtnText: {
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: "700",
     color: colors.ctaText,
   },
-  tabsRow: {
+  tabsSegment: {
     flexDirection: "row",
-    gap: 7,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  tabBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 8,
     backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: 4,
+    marginVertical: 12,
     borderWidth: 1,
     borderColor: colors.line,
   },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 9,
+    alignItems: "center",
+  },
   tabBtnActive: {
     backgroundColor: colors.surfaceElevated,
-    borderColor: colors.accentBorder,
   },
   tabBtnText: {
     fontSize: 12,
     color: colors.muted,
-    fontWeight: "500",
+    fontWeight: "600",
   },
   tabBtnTextActive: {
-    color: colors.accent,
+    color: colors.text,
     fontWeight: "700",
   },
   listScroll: {
-    paddingHorizontal: 14,
     paddingBottom: 28,
     gap: 8,
   },
   contactCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 11,
-    padding: 12,
-    borderRadius: 12,
+    gap: 12,
+    padding: 13,
+    borderRadius: 14,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.line,
   },
   avatarSmall: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: colors.accentSoft,
+    width: 42,
+    height: 42,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: colors.accentBorder,
     alignItems: "center",
     justifyContent: "center",
   },
   avatarSmallText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: colors.accent,
+    fontSize: 16,
+    fontWeight: "800",
   },
   contactCardBody: {
     flex: 1,
@@ -1049,90 +1147,89 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   contactCardName: {
-    fontSize: 14.5,
-    fontWeight: "600",
+    fontSize: 15,
+    fontWeight: "700",
     color: colors.text,
   },
   relPill: {
-    fontSize: 10,
-    color: colors.sage,
-    backgroundColor: colors.sageSoft,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 5,
+    fontSize: 10.5,
+    fontWeight: "600",
+    color: colors.sky,
+    backgroundColor: colors.skySoft,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
   },
   contactCardSub: {
-    fontSize: 12,
+    fontSize: 12.5,
     color: colors.muted,
     marginTop: 2,
   },
   emptyCard: {
     padding: 20,
-    borderRadius: 13,
+    borderRadius: 15,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.line,
-    marginTop: 8,
+    marginTop: 6,
     gap: 6,
   },
   emptyTitle: {
-    fontSize: 14.5,
-    fontWeight: "600",
+    fontSize: 15,
+    fontWeight: "700",
     color: colors.text,
   },
   emptyText: {
-    fontSize: 12.5,
+    fontSize: 13,
     lineHeight: 19,
     color: colors.muted,
   },
   detailScroll: {
-    padding: 14,
+    paddingTop: 14,
     paddingBottom: 32,
     gap: 12,
   },
   profileCard: {
     backgroundColor: colors.surface,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.lineStrong,
-    padding: 15,
-    gap: 11,
+    padding: 16,
+    gap: 12,
   },
   profileTop: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 13,
+    gap: 14,
   },
   avatarCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colors.accentSoft,
+    width: 52,
+    height: 52,
+    borderRadius: 17,
     borderWidth: 1,
-    borderColor: colors.accentBorder,
     alignItems: "center",
     justifyContent: "center",
   },
   avatarInitial: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: colors.accent,
+    fontSize: 21,
+    fontWeight: "800",
   },
   profileInfo: {
     flex: 1,
   },
   profileName: {
-    fontSize: 18,
+    fontSize: 19,
     fontWeight: "700",
     color: colors.text,
   },
   profileRel: {
-    fontSize: 12,
-    color: colors.sage,
+    fontSize: 12.5,
+    color: colors.sky,
+    fontWeight: "600",
     marginTop: 1,
   },
   profilePhone: {
-    fontSize: 13,
+    fontSize: 13.5,
     color: colors.muted,
     marginTop: 2,
   },
@@ -1141,13 +1238,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     backgroundColor: colors.sidebar,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    borderRadius: 10,
   },
   metaText: {
     flex: 1,
-    fontSize: 12.5,
+    fontSize: 13,
     color: colors.textSecondary,
   },
   profileActionRow: {
@@ -1158,8 +1255,8 @@ const styles = StyleSheet.create({
   },
   profileActionBtn: {
     flex: 1,
-    height: 38,
-    borderRadius: 9,
+    height: 40,
+    borderRadius: 11,
     backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
     borderColor: colors.line,
@@ -1168,9 +1265,27 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 6,
   },
+  callBtnTint: {
+    backgroundColor: colors.sageSoft,
+    borderColor: colors.sageBorder,
+  },
+  smsBtnTint: {
+    backgroundColor: colors.skySoft,
+    borderColor: colors.skyBorder,
+  },
+  profileDeleteBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 11,
+    backgroundColor: colors.dangerBg,
+    borderWidth: 1,
+    borderColor: colors.dangerBorder,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   profileActionText: {
-    fontSize: 12,
-    fontWeight: "600",
+    fontSize: 12.5,
+    fontWeight: "700",
     color: colors.text,
   },
   sectionHeaderRow: {
@@ -1179,36 +1294,35 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginTop: 6,
   },
-  sectionHeaderLabel: {
-    fontSize: 10,
+  sectionHeaderTitle: {
+    fontSize: 14,
     fontWeight: "700",
-    letterSpacing: 1.2,
-    color: colors.subtle,
+    color: colors.text,
   },
   smallAddBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 9,
     backgroundColor: colors.ctaBg,
   },
   smallAddBtnText: {
-    fontSize: 11.5,
+    fontSize: 12,
     fontWeight: "700",
     color: colors.ctaText,
   },
   memCard: {
     backgroundColor: colors.surface,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: colors.line,
-    padding: 12,
+    padding: 13,
     gap: 5,
   },
   memCardSettled: {
-    opacity: 0.65,
+    opacity: 0.62,
   },
   memTopRow: {
     flexDirection: "row",
@@ -1218,22 +1332,20 @@ const styles = StyleSheet.create({
   memTagWrap: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 7,
   },
   memCatTag: {
-    fontSize: 9.5,
+    fontSize: 10.5,
     fontWeight: "700",
-    letterSpacing: 0.8,
-    color: colors.accent,
-    backgroundColor: colors.accentSoft,
-    paddingHorizontal: 6,
+    textTransform: "capitalize",
+    paddingHorizontal: 7,
     paddingVertical: 2,
-    borderRadius: 5,
+    borderRadius: 6,
   },
   memContactTag: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "600",
-    color: colors.sage,
+    color: colors.textSecondary,
   },
   amountWrap: {
     flexDirection: "row",
@@ -1245,18 +1357,18 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   memLabel: {
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: 14.5,
+    fontWeight: "700",
     color: colors.text,
   },
   memDetail: {
-    fontSize: 12.5,
+    fontSize: 13,
     color: colors.textSecondary,
-    lineHeight: 18,
+    lineHeight: 18.5,
   },
   memDate: {
-    fontSize: 11.5,
-    color: colors.accent,
+    fontSize: 12,
+    color: colors.warning,
     marginTop: 2,
   },
   memActions: {
@@ -1269,68 +1381,71 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
     backgroundColor: colors.sageSoft,
     borderWidth: 1,
     borderColor: colors.sageBorder,
   },
   settleBtnText: {
-    fontSize: 11,
-    fontWeight: "600",
+    fontSize: 11.5,
+    fontWeight: "700",
     color: colors.sage,
   },
   settledLabel: {
-    fontSize: 11,
+    fontSize: 11.5,
     color: colors.sage,
-    fontWeight: "600",
+    fontWeight: "700",
   },
   deleteMemBtn: {
     marginLeft: "auto",
     padding: 4,
   },
   formScroll: {
-    padding: 16,
+    paddingTop: 16,
     paddingBottom: 34,
     gap: 10,
   },
   fieldLabel: {
-    fontSize: 10,
-    letterSpacing: 1.2,
+    fontSize: 12.5,
     fontWeight: "600",
-    color: colors.muted,
+    color: colors.textSecondary,
     marginTop: 6,
   },
   input: {
-    height: 45,
-    borderRadius: 10,
+    height: 46,
+    borderRadius: 12,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.lineStrong,
-    paddingHorizontal: 12,
+    paddingHorizontal: 13,
     color: colors.text,
-    fontSize: 13.5,
+    fontSize: 14,
   },
   textArea: {
-    height: 90,
-    paddingTop: 10,
+    height: 92,
+    paddingTop: 11,
     textAlignVertical: "top",
   },
   pillRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 7,
+    gap: 8,
   },
   catChip: {
-    paddingHorizontal: 11,
-    paddingVertical: 7,
-    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.line,
   },
   catChipActive: {
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.accentBorder,
+  },
+  catChipEmerald: {
     backgroundColor: colors.sageSoft,
     borderColor: colors.sageBorder,
   },
@@ -1339,18 +1454,18 @@ const styles = StyleSheet.create({
     borderColor: colors.dangerBorder,
   },
   catChipText: {
-    fontSize: 12,
+    fontSize: 12.5,
     color: colors.muted,
-    fontWeight: "500",
+    fontWeight: "600",
   },
   catChipTextActive: {
-    color: colors.sage,
+    color: colors.accent,
     fontWeight: "700",
   },
   primaryBtn: {
     marginTop: 14,
-    height: 46,
-    borderRadius: 11,
+    height: 48,
+    borderRadius: 12,
     backgroundColor: colors.ctaBg,
     flexDirection: "row",
     alignItems: "center",
@@ -1358,7 +1473,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   primaryBtnText: {
-    fontSize: 14,
+    fontSize: 14.5,
     fontWeight: "700",
     color: colors.ctaText,
   },

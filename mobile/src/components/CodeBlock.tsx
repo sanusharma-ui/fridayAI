@@ -12,35 +12,33 @@ import { Check, Copy, Terminal, WrapText } from "lucide-react-native";
 import { colors } from "../theme/colors";
 
 const LANGUAGE_LABELS: Record<string, { label: string; dot: string }> = {
-  ts: { label: "TypeScript", dot: "#6fa8dc" },
-  typescript: { label: "TypeScript", dot: "#6fa8dc" },
-  tsx: { label: "TSX · React", dot: "#76c7d8" },
-  js: { label: "JavaScript", dot: "#e3c770" },
-  javascript: { label: "JavaScript", dot: "#e3c770" },
-  jsx: { label: "JSX · React", dot: "#76c7d8" },
-  py: { label: "Python", dot: "#8ab87c" },
-  python: { label: "Python", dot: "#8ab87c" },
-  sh: { label: "Shell", dot: "#a6b99a" },
-  bash: { label: "Bash", dot: "#a6b99a" },
-  zsh: { label: "Shell", dot: "#a6b99a" },
-  powershell: { label: "PowerShell", dot: "#7fa7d6" },
-  ps1: { label: "PowerShell", dot: "#7fa7d6" },
-  json: { label: "JSON", dot: "#d9b48d" },
-  sql: { label: "SQL", dot: "#d49a89" },
-  html: { label: "HTML", dot: "#e08d72" },
-  css: { label: "CSS", dot: "#8aa4d6" },
-  go: { label: "Go", dot: "#7cc5cf" },
-  rust: { label: "Rust", dot: "#d69473" },
-  rs: { label: "Rust", dot: "#d69473" },
-  java: { label: "Java", dot: "#d99d6c" },
-  kotlin: { label: "Kotlin", dot: "#b094d9" },
-  kt: { label: "Kotlin", dot: "#b094d9" },
-  cpp: { label: "C++", dot: "#7ea3cc" },
-  c: { label: "C", dot: "#7ea3cc" },
-  yaml: { label: "YAML", dot: "#c8a97e" },
-  yml: { label: "YAML", dot: "#c8a97e" },
-  md: { label: "Markdown", dot: "#a6b99a" },
-  markdown: { label: "Markdown", dot: "#a6b99a" },
+  ts: { label: "TypeScript", dot: "#58A6FF" },
+  typescript: { label: "TypeScript", dot: "#58A6FF" },
+  tsx: { label: "TSX · React", dot: "#61DAFB" },
+  js: { label: "JavaScript", dot: "#F7DF1E" },
+  javascript: { label: "JavaScript", dot: "#F7DF1E" },
+  jsx: { label: "JSX · React", dot: "#61DAFB" },
+  py: { label: "Python", dot: "#34D399" },
+  python: { label: "Python", dot: "#34D399" },
+  sh: { label: "Shell", dot: "#2DD4A0" },
+  bash: { label: "Bash", dot: "#2DD4A0" },
+  zsh: { label: "Shell", dot: "#2DD4A0" },
+  powershell: { label: "PowerShell", dot: "#58A6FF" },
+  ps1: { label: "PowerShell", dot: "#58A6FF" },
+  json: { label: "JSON", dot: "#F5B041" },
+  sql: { label: "SQL", dot: "#F27D52" },
+  html: { label: "HTML", dot: "#F87171" },
+  css: { label: "CSS", dot: "#60A5FA" },
+  go: { label: "Go", dot: "#38BDF8" },
+  rust: { label: "Rust", dot: "#FB923C" },
+  rs: { label: "Rust", dot: "#FB923C" },
+  java: { label: "Java", dot: "#F59E0B" },
+  kotlin: { label: "Kotlin", dot: "#C084FC" },
+  kt: { label: "Kotlin", dot: "#C084FC" },
+  cpp: { label: "C++", dot: "#60A5FA" },
+  c: { label: "C", dot: "#60A5FA" },
+  yaml: { label: "YAML", dot: "#F5B041" },
+  yml: { label: "YAML", dot: "#F5B041" },
 };
 
 const KEYWORDS = new Set([
@@ -140,8 +138,17 @@ interface TokenSpan {
 function tokenizeLine(line: string, langKey: string): TokenSpan[] {
   if (!line) return [{ text: " ", kind: "plain" }];
 
-  // Whole-line or trailing comment check (outside strings)
-  const isHashCommentLang = ["py", "python", "sh", "bash", "zsh", "yaml", "yml", "powershell", "ps1"].includes(langKey);
+  const isHashCommentLang = [
+    "py",
+    "python",
+    "sh",
+    "bash",
+    "zsh",
+    "yaml",
+    "yml",
+    "powershell",
+    "ps1",
+  ].includes(langKey);
   const isSql = langKey === "sql";
 
   const spans: TokenSpan[] = [];
@@ -154,13 +161,8 @@ function tokenizeLine(line: string, langKey: string): TokenSpan[] {
   while ((match = tokenRegex.exec(line)) !== null) {
     const tok = match[0];
 
-    // Guard hash/sql comments depending on language
-    if (tok.startsWith("#") && !isHashCommentLang) {
-      continue;
-    }
-    if (tok.startsWith("--") && !isSql) {
-      continue;
-    }
+    if (tok.startsWith("#") && !isHashCommentLang) continue;
+    if (tok.startsWith("--") && !isSql) continue;
 
     if (match.index > lastIdx) {
       spans.push({ text: line.slice(lastIdx, match.index), kind: "plain" });
@@ -206,7 +208,7 @@ export function CodeBlock({ lang = "", code, isStreamingBlock }: CodeBlockProps)
 
   const normalizedLang = lang.trim().toLowerCase();
   const meta = LANGUAGE_LABELS[normalizedLang] || {
-    label: normalizedLang ? normalizedLang.toUpperCase() : "CODE",
+    label: normalizedLang ? normalizedLang.toUpperCase() : "Code",
     dot: colors.accent,
   };
 
@@ -216,7 +218,6 @@ export function CodeBlock({ lang = "", code, isStreamingBlock }: CodeBlockProps)
   }, [code]);
 
   const highlightedLines = useMemo(() => {
-    // Cap heavy tokenization for massive >300 line blocks to keep 60fps
     if (lines.length > 300) {
       return lines.map((l) => [{ text: l || " ", kind: "plain" as const }]);
     }
@@ -265,7 +266,7 @@ export function CodeBlock({ lang = "", code, isStreamingBlock }: CodeBlockProps)
           <Terminal size={13} color={meta.dot} />
           <Text style={styles.langLabel}>{meta.label}</Text>
           <Text style={styles.lineCount}>
-            {isStreamingBlock ? "· writing…" : `· ${lines.length} ${lines.length === 1 ? "line" : "lines"}`}
+            {isStreamingBlock ? "· writing…" : `· ${lines.length}L`}
           </Text>
         </View>
 
@@ -275,12 +276,9 @@ export function CodeBlock({ lang = "", code, isStreamingBlock }: CodeBlockProps)
             style={[styles.actionBtn, wrapLines && styles.actionBtnActive]}
             hitSlop={6}
           >
-            <WrapText size={12} color={wrapLines ? colors.accent : colors.muted} />
+            <WrapText size={12} color={wrapLines ? colors.sky : colors.muted} />
             <Text
-              style={[
-                styles.actionText,
-                wrapLines && { color: colors.accent },
-              ]}
+              style={[styles.actionText, wrapLines && { color: colors.sky }]}
             >
               Wrap
             </Text>
@@ -320,20 +318,21 @@ const monoFont = Platform.select({
   default: "monospace",
 });
 
+// Crisp GitHub-Dark inspired syntax palette
 const tokenStyles = StyleSheet.create({
-  plain: { color: "#e2e6dc" },
-  comment: { color: "#798372", fontStyle: "italic" },
-  string: { color: "#b3cfa2" },
-  keyword: { color: "#e29f8b", fontWeight: "600" },
-  literal: { color: "#dfc090", fontWeight: "600" },
-  number: { color: "#dfc090" },
-  func: { color: "#9dc8c7" },
-  type: { color: "#d6ba94" },
+  plain: { color: "#E6EDF3" },
+  comment: { color: "#7D8590", fontStyle: "italic" },
+  string: { color: "#A5D6FF" },
+  keyword: { color: "#FF7B72", fontWeight: "600" },
+  literal: { color: "#79C0FF", fontWeight: "600" },
+  number: { color: "#FFA657" },
+  func: { color: "#D2A8FF" },
+  type: { color: "#FFA657" },
 });
 
 const styles = StyleSheet.create({
   panel: {
-    borderRadius: 12,
+    borderRadius: 13,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: colors.lineStrong,
@@ -357,13 +356,12 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   langLabel: {
-    fontSize: 11.5,
+    fontSize: 12,
     fontWeight: "700",
     color: colors.text,
-    letterSpacing: 0.3,
   },
   lineCount: {
-    fontSize: 10.5,
+    fontSize: 11,
     color: colors.subtle,
   },
   headerActions: {
@@ -377,18 +375,18 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 6,
+    borderRadius: 7,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.lineSubtle,
   },
   actionBtnActive: {
-    borderColor: colors.accentBorder,
-    backgroundColor: colors.accentSoft,
+    borderColor: colors.skyBorder,
+    backgroundColor: colors.skySoft,
   },
   actionText: {
     fontSize: 11,
-    fontWeight: "500",
+    fontWeight: "600",
     color: colors.muted,
   },
   horizontalContent: {
@@ -411,13 +409,13 @@ const styles = StyleSheet.create({
     fontFamily: monoFont,
     fontSize: 11,
     lineHeight: 19,
-    color: "#576052",
+    color: "#485262",
   },
   codeLineText: {
     fontFamily: monoFont,
     fontSize: 12.5,
     lineHeight: 19,
-    color: "#e2e6dc",
+    color: "#E6EDF3",
   },
   codeLineWrapped: {
     flex: 1,

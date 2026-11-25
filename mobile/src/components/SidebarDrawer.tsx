@@ -26,6 +26,7 @@ import {
 } from "lucide-react-native";
 import { maskApiKey } from "../services/settingsStorage";
 import { colors } from "../theme/colors";
+import { useResponsive } from "../theme/responsive";
 import type { Conversation } from "../types";
 import { FridayMark } from "./FridayMark";
 
@@ -60,6 +61,7 @@ export function SidebarDrawer({
   onOpenContacts,
   onOpenSettings,
 }: SidebarDrawerProps) {
+  const { drawerWidth } = useResponsive();
   const [query, setQuery] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -104,14 +106,14 @@ export function SidebarDrawer({
       onRequestClose={onClose}
     >
       <View style={styles.backdropWrap}>
-        <View style={styles.drawer}>
+        <View style={[styles.drawer, { width: drawerWidth }]}>
           <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
             <View style={styles.brandHead}>
               <View style={styles.brandRow}>
-                <FridayMark size={25} color={colors.accent} />
-                <Text style={styles.brandName}>
-                  friday<Text style={styles.brandDot}>.</Text>
-                </Text>
+                <View style={styles.logoBox}>
+                  <FridayMark size={19} color={colors.accent} />
+                </View>
+                <Text style={styles.brandName}>Friday</Text>
                 <Pressable
                   onPress={onClose}
                   style={styles.closeBtn}
@@ -120,9 +122,6 @@ export function SidebarDrawer({
                   <ChevronLeft size={20} color={colors.muted} />
                 </Pressable>
               </View>
-              <Text style={styles.brandCaption}>
-                Personal AI, Contacts & Memory Vault.
-              </Text>
             </View>
 
             <View style={styles.actionsWrap}>
@@ -131,10 +130,13 @@ export function SidebarDrawer({
                   onNewChat();
                   onClose();
                 }}
-                style={({ pressed }) => [styles.newChatBtn, pressed && styles.pressed]}
+                style={({ pressed }) => [
+                  styles.newChatBtn,
+                  pressed && styles.pressed,
+                ]}
               >
-                <Plus size={17} color={colors.ctaText} strokeWidth={2.4} />
-                <Text style={styles.newChatText}>New conversation</Text>
+                <Plus size={17} color={colors.ctaText} strokeWidth={2.5} />
+                <Text style={styles.newChatText}>New chat</Text>
               </Pressable>
 
               <View style={styles.searchBox}>
@@ -142,7 +144,7 @@ export function SidebarDrawer({
                 <TextInput
                   value={query}
                   onChangeText={setQuery}
-                  placeholder="Search conversations"
+                  placeholder="Search chats…"
                   placeholderTextColor={colors.subtle}
                   style={styles.searchInput}
                 />
@@ -154,19 +156,19 @@ export function SidebarDrawer({
               </View>
             </View>
 
-            <View style={styles.divider} />
-
             <View style={styles.historyHeader}>
-              <Text style={styles.historyLabel}>CONVERSATIONS</Text>
+              <Text style={styles.historyLabel}>Recent chats</Text>
               <Text style={styles.historyCount}>{conversations.length}</Text>
             </View>
 
-            <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
+            <ScrollView
+              style={styles.list}
+              contentContainerStyle={styles.listContent}
+            >
               {filtered.length === 0 ? (
                 <View style={styles.emptyBox}>
-                  <MessageSquare size={18} color={colors.subtle} />
                   <Text style={styles.emptyText}>
-                    {query ? "No matching conversations" : "Your conversations will appear here"}
+                    {query ? "No matching chats" : "No chats yet"}
                   </Text>
                 </View>
               ) : (
@@ -177,7 +179,10 @@ export function SidebarDrawer({
                   return (
                     <View
                       key={chat.id}
-                      style={[styles.chatRow, isActive && styles.chatRowActive]}
+                      style={[
+                        styles.chatRow,
+                        isActive && styles.chatRowActive,
+                      ]}
                     >
                       {isEditing ? (
                         <View style={styles.editWrap}>
@@ -213,7 +218,7 @@ export function SidebarDrawer({
                           >
                             <MessageSquare
                               size={15}
-                              color={isActive ? colors.sage : colors.muted}
+                              color={isActive ? colors.accent : colors.muted}
                             />
                             <Text
                               style={[
@@ -251,28 +256,23 @@ export function SidebarDrawer({
             </ScrollView>
 
             <View style={styles.footer}>
-              <View style={styles.footerRule} />
-
               <Pressable
                 onPress={() => {
                   onClose();
                   onOpenContacts();
                 }}
                 style={({ pressed }) => [
-                  styles.settingsCard,
-                  { marginBottom: 8 },
+                  styles.navCard,
                   pressed && styles.pressed,
                 ]}
               >
-                <View style={styles.contactsCardIcon}>
-                  <Users size={16} color={colors.accent} />
+                <View style={styles.contactsIconBox}>
+                  <Users size={16} color={colors.sky} />
                 </View>
-                <View style={styles.settingsCardCopy}>
-                  <Text style={styles.settingsCardTitle}>
-                    Contacts & Memories
-                  </Text>
-                  <Text style={styles.settingsCardSub} numberOfLines={1}>
-                    {contactsCount} saved locally in SQLite
+                <View style={styles.navCardCopy}>
+                  <Text style={styles.navCardTitle}>Contacts & Hisaab</Text>
+                  <Text style={styles.navCardSub} numberOfLines={1}>
+                    {contactsCount} {contactsCount === 1 ? "person" : "people"} saved
                   </Text>
                 </View>
               </Pressable>
@@ -282,31 +282,34 @@ export function SidebarDrawer({
                   onClose();
                   onOpenSettings();
                 }}
-                style={({ pressed }) => [styles.settingsCard, pressed && styles.pressed]}
+                style={({ pressed }) => [
+                  styles.navCard,
+                  pressed && styles.pressed,
+                ]}
               >
-                <View style={styles.settingsCardIcon}>
+                <View
+                  style={[
+                    styles.settingsIconBox,
+                    !groqApiKey && { backgroundColor: colors.warningBg },
+                  ]}
+                >
                   {groqApiKey ? (
                     <Settings size={16} color={colors.sage} />
                   ) : (
                     <KeyRound size={16} color={colors.warning} />
                   )}
                 </View>
-                <View style={styles.settingsCardCopy}>
-                  <Text style={styles.settingsCardTitle}>
-                    {groqApiKey ? "Settings & API Keys" : "Setup Groq API Key"}
+                <View style={styles.navCardCopy}>
+                  <Text style={styles.navCardTitle}>
+                    {groqApiKey ? "Settings" : "Connect Groq Key"}
                   </Text>
-                  <Text style={styles.settingsCardSub} numberOfLines={1}>
+                  <Text style={styles.navCardSub} numberOfLines={1}>
                     {groqApiKey
                       ? `${maskApiKey(groqApiKey)} · ${selectedModel}`
-                      : "Tap here to configure your Groq key"}
+                      : "Set up your API key"}
                   </Text>
                 </View>
               </Pressable>
-
-              <View style={styles.bottomMeta}>
-                <Text style={styles.bottomMetaText}>FRIDAY MOBILE · GROQ</Text>
-                <Text style={styles.bottomMetaSparkle}>✦</Text>
-              </View>
             </View>
           </SafeAreaView>
         </View>
@@ -324,8 +327,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.overlay,
   },
   drawer: {
-    width: "82%",
-    maxWidth: 310,
     backgroundColor: colors.sidebar,
     borderRightWidth: 1,
     borderRightColor: colors.line,
@@ -337,58 +338,60 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   brandHead: {
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    paddingBottom: 18,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 14,
   },
   brandRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 9,
+    gap: 10,
+  },
+  logoBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: colors.accentSoft,
+    borderWidth: 1,
+    borderColor: colors.accentBorder,
+    alignItems: "center",
+    justifyContent: "center",
   },
   brandName: {
-    fontSize: 25,
-    fontWeight: "600",
+    fontSize: 20,
+    fontWeight: "700",
     color: colors.text,
-    letterSpacing: -1,
-  },
-  brandDot: {
-    color: colors.accent,
+    letterSpacing: -0.5,
   },
   closeBtn: {
     marginLeft: "auto",
     width: 34,
     height: 34,
-    borderRadius: 8,
+    borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
   },
-  brandCaption: {
-    fontSize: 11,
-    color: colors.subtle,
-    marginTop: 6,
-  },
   actionsWrap: {
-    paddingHorizontal: 16,
-    gap: 10,
+    paddingHorizontal: 14,
+    gap: 9,
   },
   newChatBtn: {
-    height: 42,
-    borderRadius: 9,
+    height: 43,
+    borderRadius: 12,
     backgroundColor: colors.ctaBg,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 13,
-    gap: 9,
+    justifyContent: "center",
+    gap: 8,
   },
   newChatText: {
-    fontSize: 13,
-    fontWeight: "600",
+    fontSize: 13.5,
+    fontWeight: "700",
     color: colors.ctaText,
   },
   searchBox: {
-    height: 39,
-    borderRadius: 9,
+    height: 40,
+    borderRadius: 11,
     borderWidth: 1,
     borderColor: colors.line,
     backgroundColor: colors.surface,
@@ -400,51 +403,45 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     color: colors.text,
-    fontSize: 12,
+    fontSize: 13,
     paddingVertical: 0,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: colors.line,
-    marginHorizontal: 16,
-    marginVertical: 16,
   },
   historyHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
-    marginBottom: 10,
+    alignItems: "center",
+    paddingHorizontal: 16,
+    marginTop: 18,
+    marginBottom: 8,
   },
   historyLabel: {
-    fontSize: 10,
-    letterSpacing: 1.4,
-    color: colors.subtle,
+    fontSize: 12,
+    color: colors.muted,
     fontWeight: "600",
   },
   historyCount: {
-    fontSize: 11,
+    fontSize: 11.5,
     color: colors.subtle,
   },
   list: {
     flex: 1,
   },
   listContent: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingBottom: 12,
-    gap: 4,
+    gap: 3,
   },
   emptyBox: {
-    padding: 20,
-    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 16,
   },
   emptyText: {
-    fontSize: 12,
+    fontSize: 12.5,
     color: colors.subtle,
-    lineHeight: 18,
   },
   chatRow: {
     minHeight: 44,
-    borderRadius: 9,
+    borderRadius: 11,
     flexDirection: "row",
     alignItems: "center",
     paddingLeft: 10,
@@ -465,12 +462,12 @@ const styles = StyleSheet.create({
   },
   chatTitle: {
     flex: 1,
-    fontSize: 13,
+    fontSize: 13.5,
     color: colors.muted,
   },
   chatTitleActive: {
     color: colors.text,
-    fontWeight: "500",
+    fontWeight: "600",
   },
   rowActions: {
     flexDirection: "row",
@@ -482,7 +479,7 @@ const styles = StyleSheet.create({
     height: 28,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 6,
+    borderRadius: 7,
   },
   editWrap: {
     flex: 1,
@@ -495,76 +492,59 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 34,
     backgroundColor: colors.bg,
-    borderRadius: 6,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: colors.sageBorder,
-    paddingHorizontal: 8,
+    borderColor: colors.accentBorder,
+    paddingHorizontal: 9,
     color: colors.text,
-    fontSize: 12,
+    fontSize: 12.5,
   },
   footer: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 14,
+    borderTopWidth: 1,
+    borderTopColor: colors.lineSubtle,
+    gap: 8,
   },
-  footerRule: {
-    height: 1,
-    backgroundColor: colors.line,
-    marginBottom: 10,
-  },
-  settingsCard: {
+  navCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: 11,
     padding: 10,
-    borderRadius: 11,
+    borderRadius: 12,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.line,
   },
-  contactsCardIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: colors.accentSoft,
+  contactsIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: colors.skySoft,
     alignItems: "center",
     justifyContent: "center",
   },
-  settingsCardIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: colors.surfaceElevated,
+  settingsIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: colors.sageSoft,
     alignItems: "center",
     justifyContent: "center",
   },
-  settingsCardCopy: {
+  navCardCopy: {
     flex: 1,
   },
-  settingsCardTitle: {
-    fontSize: 12.5,
-    fontWeight: "600",
+  navCardTitle: {
+    fontSize: 13,
+    fontWeight: "700",
     color: colors.text,
   },
-  settingsCardSub: {
-    fontSize: 10.5,
+  navCardSub: {
+    fontSize: 11,
     color: colors.muted,
     marginTop: 1,
-  },
-  bottomMeta: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 11,
-    paddingHorizontal: 4,
-  },
-  bottomMetaText: {
-    fontSize: 9,
-    letterSpacing: 1.2,
-    color: colors.subtle,
-  },
-  bottomMetaSparkle: {
-    fontSize: 11,
-    color: colors.accent,
   },
   pressed: {
     opacity: 0.82,

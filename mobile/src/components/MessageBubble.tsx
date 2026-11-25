@@ -122,15 +122,14 @@ export function MessageBubble({
   return (
     <View style={styles.aiRow}>
       <View style={styles.avatar}>
-        <FridayMark size={17} color={colors.accent} />
+        <FridayMark size={16} color={colors.accent} />
       </View>
 
       <View style={styles.aiBody}>
-        {/* Header */}
         <View style={styles.aiHeader}>
           <Text style={styles.aiName}>Friday</Text>
           <Text style={styles.aiTime}>
-            {message.isStreaming ? "Streaming…" : formatTime(message.createdAt)}
+            {message.isStreaming ? "Writing…" : formatTime(message.createdAt)}
           </Text>
           {message.modelUsed ? (
             <Text style={styles.modelTag} numberOfLines={1}>
@@ -150,8 +149,8 @@ export function MessageBubble({
         {/* Live Tool Activity Pill */}
         {message.activeToolLabel ? (
           <View style={styles.activeToolPill}>
-            <ActivityIndicator size="small" color={colors.accent} />
-            <Zap size={12} color={colors.accent} />
+            <ActivityIndicator size="small" color={colors.sky} />
+            <Zap size={12} color={colors.sky} />
             <Text style={styles.activeToolText}>{message.activeToolLabel}</Text>
           </View>
         ) : null}
@@ -163,9 +162,12 @@ export function MessageBubble({
               <Pressable
                 key={b.id}
                 onPress={onOpenContacts}
-                style={styles.savedBadge}
+                style={({ pressed }) => [
+                  styles.savedBadge,
+                  pressed && { opacity: 0.8 },
+                ]}
               >
-                <CheckCircle2 size={12} color={colors.sage} />
+                <CheckCircle2 size={13} color={colors.sage} />
                 <Text style={styles.savedBadgeText} numberOfLines={1}>
                   {b.label}
                 </Text>
@@ -179,28 +181,28 @@ export function MessageBubble({
           <View style={styles.noticesWrap}>
             {message.notices.map((notice, idx) => (
               <View key={`nt-${idx}`} style={styles.noticeChip}>
-                <Info size={12} color={colors.accent} />
+                <Info size={12} color={colors.sky} />
                 <Text style={styles.noticeText}>{notice}</Text>
               </View>
             ))}
           </View>
         )}
 
-        {/* Collapsible Reasoning / Thought Process Block */}
+        {/* Collapsible Reasoning Block */}
         {message.reasoning ? (
           <View style={styles.reasoningCard}>
             <Pressable
               onPress={() => setShowReasoning((v) => !v)}
               style={styles.reasoningHeader}
             >
-              <Brain size={13} color={colors.sage} />
+              <Brain size={13} color={colors.warning} />
               <Text style={styles.reasoningTitle}>
-                {isThinkingPhase ? "Reasoning…" : "Thought process"}
+                {isThinkingPhase ? "Thinking…" : "Thought process"}
               </Text>
               {isThinkingPhase ? (
                 <ActivityIndicator
                   size="small"
-                  color={colors.sage}
+                  color={colors.warning}
                   style={{ marginLeft: 4 }}
                 />
               ) : null}
@@ -221,7 +223,7 @@ export function MessageBubble({
           </View>
         ) : null}
 
-        {/* Main Markdown Content */}
+        {/* Main Content */}
         {isWaitingFirstToken ? (
           <View style={styles.waitingRow}>
             <ActivityIndicator size="small" color={colors.accent} />
@@ -230,7 +232,9 @@ export function MessageBubble({
         ) : message.content || message.isStreaming ? (
           <MarkdownContent
             content={message.content}
-            isStreaming={Boolean(message.isStreaming && !message.activeToolLabel)}
+            isStreaming={Boolean(
+              message.isStreaming && !message.activeToolLabel
+            )}
           />
         ) : null}
 
@@ -275,7 +279,7 @@ export function MessageBubble({
                 hitSlop={6}
               >
                 <RotateCcw size={13} color={colors.muted} />
-                <Text style={styles.toolText}>Regenerate</Text>
+                <Text style={styles.toolText}>Retry</Text>
               </Pressable>
             )}
           </View>
@@ -289,33 +293,33 @@ const styles = StyleSheet.create({
   userRow: {
     flexDirection: "row",
     justifyContent: "flex-end",
-    marginBottom: 22,
+    marginBottom: 20,
   },
   userGroup: {
-    maxWidth: "84%",
+    maxWidth: "85%",
     alignItems: "flex-end",
-    gap: 6,
+    gap: 5,
   },
   userBubble: {
     backgroundColor: colors.userBubble,
     borderWidth: 1,
-    borderColor: colors.lineStrong,
+    borderColor: colors.userBubbleBorder,
     paddingHorizontal: 15,
     paddingVertical: 11,
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    borderBottomLeftRadius: 14,
-    borderBottomRightRadius: 4,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 5,
   },
   userText: {
-    color: colors.text,
-    fontSize: 14.5,
+    color: "#F6F8FC",
+    fontSize: 15,
     lineHeight: 22,
   },
   userTime: {
-    fontSize: 10,
+    fontSize: 10.5,
     color: colors.subtle,
-    paddingRight: 2,
+    paddingRight: 3,
   },
   aiRow: {
     flexDirection: "row",
@@ -326,13 +330,13 @@ const styles = StyleSheet.create({
   avatar: {
     width: 30,
     height: 30,
-    borderRadius: 8,
+    borderRadius: 10,
     backgroundColor: colors.accentSoft,
     borderWidth: 1,
     borderColor: colors.accentBorder,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 2,
+    marginTop: 1,
   },
   aiBody: {
     flex: 1,
@@ -343,28 +347,29 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexWrap: "wrap",
     gap: 5,
-    marginBottom: 8,
+    marginBottom: 7,
   },
   aiName: {
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: "700",
     color: colors.text,
   },
   aiTime: {
-    fontSize: 10.5,
+    fontSize: 11,
     color: colors.subtle,
   },
   modelTag: {
-    fontSize: 10,
+    fontSize: 10.5,
     color: colors.subtle,
     maxWidth: 140,
   },
   durationTag: {
-    fontSize: 10,
+    fontSize: 10.5,
     color: colors.sage,
+    fontWeight: "600",
   },
   stoppedTag: {
-    fontSize: 10,
+    fontSize: 10.5,
     color: colors.warning,
   },
   activeToolPill: {
@@ -372,18 +377,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     alignSelf: "flex-start",
     gap: 6,
-    paddingHorizontal: 10,
+    paddingHorizontal: 11,
     paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: colors.accentSoft,
+    borderRadius: 999,
+    backgroundColor: colors.skySoft,
     borderWidth: 1,
-    borderColor: colors.accentBorder,
+    borderColor: colors.skyBorder,
     marginBottom: 9,
   },
   activeToolText: {
-    fontSize: 11.5,
+    fontSize: 12,
     fontWeight: "600",
-    color: colors.accent,
+    color: colors.sky,
   },
   badgesWrap: {
     flexDirection: "row",
@@ -395,22 +400,22 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 9,
     backgroundColor: colors.sageSoft,
     borderWidth: 1,
     borderColor: colors.sageBorder,
     maxWidth: "100%",
   },
   savedBadgeText: {
-    fontSize: 11.5,
+    fontSize: 12,
     fontWeight: "600",
     color: colors.sage,
     flexShrink: 1,
   },
   actionsList: {
-    gap: 6,
+    gap: 8,
   },
   noticesWrap: {
     gap: 6,
@@ -422,19 +427,19 @@ const styles = StyleSheet.create({
     gap: 7,
     paddingHorizontal: 10,
     paddingVertical: 7,
-    borderRadius: 8,
-    backgroundColor: colors.accentSoft,
+    borderRadius: 9,
+    backgroundColor: colors.skySoft,
     borderWidth: 1,
-    borderColor: colors.accentBorder,
+    borderColor: colors.skyBorder,
   },
   noticeText: {
     flex: 1,
-    fontSize: 11.5,
+    fontSize: 12,
     lineHeight: 17,
     color: colors.textSecondary,
   },
   reasoningCard: {
-    borderRadius: 10,
+    borderRadius: 11,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.line,
@@ -445,19 +450,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
-    paddingHorizontal: 11,
+    paddingHorizontal: 12,
     paddingVertical: 8,
   },
   reasoningTitle: {
     fontSize: 12,
     fontWeight: "600",
-    color: colors.sage,
+    color: colors.warning,
   },
   reasoningBody: {
     fontSize: 12.5,
     lineHeight: 19,
     color: colors.muted,
-    paddingHorizontal: 11,
+    paddingHorizontal: 12,
     paddingBottom: 10,
     borderTopWidth: 1,
     borderTopColor: colors.lineSubtle,
@@ -470,29 +475,29 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   waitingText: {
-    fontSize: 12.5,
+    fontSize: 13,
     color: colors.muted,
   },
   aiTools: {
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
-    gap: 7,
+    gap: 8,
     marginTop: 11,
   },
   toolBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    paddingVertical: 5,
-    paddingHorizontal: 9,
-    borderRadius: 7,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
     backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.lineSubtle,
+    borderColor: colors.line,
   },
   toolText: {
-    fontSize: 11,
+    fontSize: 11.5,
     color: colors.muted,
     fontWeight: "500",
   },

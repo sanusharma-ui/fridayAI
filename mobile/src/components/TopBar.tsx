@@ -1,116 +1,93 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import {
-  KeyRound,
-  Menu,
-  Settings,
-  Users,
-  Wifi,
-  WifiOff,
-} from "lucide-react-native";
+import { Menu, Plus, Settings, Users } from "lucide-react-native";
 import { colors } from "../theme/colors";
+import { useResponsive } from "../theme/responsive";
 import type { ConnectionState } from "../types";
+import { FridayMark } from "./FridayMark";
 
 interface TopBarProps {
   title: string;
+  isHome: boolean;
   connectionState: ConnectionState;
   hasApiKey: boolean;
   contactsCount: number;
   onOpenDrawer: () => void;
+  onNewChat: () => void;
   onOpenContacts: () => void;
   onOpenSettings: () => void;
 }
 
 export function TopBar({
   title,
+  isHome,
   connectionState,
   hasApiKey,
   contactsCount,
   onOpenDrawer,
+  onNewChat,
   onOpenContacts,
   onOpenSettings,
 }: TopBarProps) {
-  const statusInfo = (() => {
-    if (!hasApiKey || connectionState === "missing_key") {
-      return {
-        label: "Key",
-        dotColor: colors.warning,
-        bgColor: colors.warningBg,
-        icon: "key" as const,
-      };
-    }
-    if (connectionState === "ready") {
-      return {
-        label: "Groq",
-        dotColor: colors.sage,
-        bgColor: colors.sageSoft,
-        icon: "online" as const,
-      };
-    }
-    if (connectionState === "checking") {
-      return {
-        label: "…",
-        dotColor: colors.muted,
-        bgColor: colors.surface,
-        icon: "none" as const,
-      };
-    }
-    return {
-      label: "Offline",
-      dotColor: colors.danger,
-      bgColor: colors.dangerBg,
-      icon: "offline" as const,
-    };
+  const { isCompact, horizontalPad } = useResponsive();
+
+  const statusDotColor = (() => {
+    if (!hasApiKey || connectionState === "missing_key") return colors.warning;
+    if (connectionState === "ready") return colors.sage;
+    if (connectionState === "checking") return colors.muted;
+    return colors.danger;
   })();
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingHorizontal: horizontalPad - 2 }]}>
       <View style={styles.left}>
         <Pressable
           onPress={onOpenDrawer}
-          style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
-          accessibilityLabel="Open conversations menu"
+          style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
+          accessibilityLabel="Open menu"
         >
-          <Menu size={21} color={colors.textSecondary} />
+          <Menu size={21} color={colors.text} />
         </Pressable>
 
-        <View style={styles.titleWrap}>
-          <Text style={styles.eyebrow}>FRIDAY</Text>
-          <Text style={styles.title} numberOfLines={1}>
-            {title}
-          </Text>
+        <View style={styles.brandTitleWrap}>
+          {isHome ? (
+            <View style={styles.brandInline}>
+              <FridayMark size={18} color={colors.accent} />
+              <Text style={styles.brandTitle}>Friday</Text>
+            </View>
+          ) : (
+            <Text style={styles.chatTitle} numberOfLines={1}>
+              {title}
+            </Text>
+          )}
         </View>
       </View>
 
       <View style={styles.right}>
-        <Pressable
-          onPress={onOpenSettings}
-          style={({ pressed }) => [
-            styles.statusPill,
-            { backgroundColor: statusInfo.bgColor },
-            pressed && styles.pressedOpacity,
-          ]}
-          accessibilityLabel="Connection and API key status"
-        >
-          <View style={[styles.dot, { backgroundColor: statusInfo.dotColor }]} />
-          <Text style={styles.statusText}>{statusInfo.label}</Text>
-          {statusInfo.icon === "key" && <KeyRound size={11} color={colors.warning} />}
-          {statusInfo.icon === "online" && <Wifi size={11} color={colors.sage} />}
-          {statusInfo.icon === "offline" && <WifiOff size={11} color={colors.danger} />}
-        </Pressable>
+        {!isHome && (
+          <Pressable
+            onPress={onNewChat}
+            style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
+            accessibilityLabel="Start new chat"
+          >
+            <Plus size={20} color={colors.textSecondary} />
+          </Pressable>
+        )}
 
         <Pressable
           onPress={onOpenContacts}
           style={({ pressed }) => [
-            styles.contactsBtn,
-            pressed && styles.iconBtnPressed,
+            styles.contactsPill,
+            isCompact && styles.contactsPillCompact,
+            pressed && styles.pressed,
           ]}
-          accessibilityLabel="Open Contacts and Memories"
+          accessibilityLabel="Open Contacts and Hisaab"
         >
-          <Users size={18} color={colors.accent} />
+          <Users size={15} color={colors.sky} />
+          {!isCompact && <Text style={styles.contactsPillLabel}>Vault</Text>}
           {contactsCount > 0 && (
-            <View style={styles.countBadge}>
-              <Text style={styles.countBadgeText}>
+            <View style={styles.countChip}>
+              <Text style={styles.countChipText}>
                 {contactsCount > 99 ? "99+" : contactsCount}
               </Text>
             </View>
@@ -121,12 +98,18 @@ export function TopBar({
           onPress={onOpenSettings}
           style={({ pressed }) => [
             styles.settingsBtn,
-            !hasApiKey && styles.settingsBtnHighlight,
-            pressed && styles.iconBtnPressed,
+            !hasApiKey && styles.settingsBtnWarn,
+            pressed && styles.pressed,
           ]}
           accessibilityLabel="Open settings"
         >
-          <Settings size={18} color={!hasApiKey ? colors.accent : colors.textSecondary} />
+          <Settings
+            size={18}
+            color={!hasApiKey ? colors.warning : colors.textSecondary}
+          />
+          <View
+            style={[styles.statusBadgeDot, { backgroundColor: statusDotColor }]}
+          />
         </Pressable>
       </View>
     </View>
@@ -135,11 +118,10 @@ export function TopBar({
 
 const styles = StyleSheet.create({
   container: {
-    height: 60,
+    height: 58,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 12,
     borderBottomWidth: 1,
     borderBottomColor: colors.lineSubtle,
     backgroundColor: colors.bg,
@@ -149,100 +131,97 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flex: 1,
     marginRight: 8,
-    gap: 8,
+    gap: 6,
   },
   right: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    gap: 8,
   },
   iconBtn: {
     width: 38,
     height: 38,
-    borderRadius: 10,
+    borderRadius: 11,
     alignItems: "center",
     justifyContent: "center",
   },
-  iconBtnPressed: {
-    backgroundColor: colors.surfaceHover,
-  },
-  pressedOpacity: {
-    opacity: 0.8,
-  },
-  titleWrap: {
+  brandTitleWrap: {
     flex: 1,
   },
-  eyebrow: {
-    fontSize: 9,
-    letterSpacing: 1.5,
-    color: colors.subtle,
-    fontWeight: "600",
-  },
-  title: {
-    fontSize: 14,
-    color: colors.text,
-    fontWeight: "500",
-    marginTop: 1,
-  },
-  statusPill: {
+  brandInline: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 8,
+  },
+  brandTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: colors.text,
+    letterSpacing: -0.4,
+  },
+  chatTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: colors.text,
+  },
+  contactsPill: {
+    height: 36,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 11,
+    borderRadius: 11,
+    backgroundColor: colors.skySoft,
+    borderWidth: 1,
+    borderColor: colors.skyBorder,
+  },
+  contactsPillCompact: {
     paddingHorizontal: 9,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.line,
   },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+  contactsPillLabel: {
+    fontSize: 12.5,
+    fontWeight: "600",
+    color: colors.sky,
   },
-  statusText: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    fontWeight: "500",
-  },
-  contactsBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: colors.accentBorder,
-    backgroundColor: colors.accentSoft,
-  },
-  countBadge: {
-    position: "absolute",
-    top: -4,
-    right: -4,
-    minWidth: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: colors.sage,
-    paddingHorizontal: 4,
+  countChip: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.sky,
+    paddingHorizontal: 5,
     alignItems: "center",
     justifyContent: "center",
   },
-  countBadgeText: {
-    fontSize: 9,
+  countChipText: {
+    fontSize: 10,
     fontWeight: "800",
-    color: colors.ctaText,
+    color: "#09111E",
   },
   settingsBtn: {
     width: 38,
     height: 38,
-    borderRadius: 10,
+    borderRadius: 11,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.line,
-    backgroundColor: colors.surface,
   },
-  settingsBtnHighlight: {
-    borderColor: colors.accentBorder,
-    backgroundColor: colors.accentSoft,
+  settingsBtnWarn: {
+    backgroundColor: colors.warningBg,
+    borderColor: colors.warningBorder,
+  },
+  statusBadgeDot: {
+    position: "absolute",
+    top: 7,
+    right: 7,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    borderWidth: 1.2,
+    borderColor: colors.surface,
+  },
+  pressed: {
+    opacity: 0.76,
   },
 });
