@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Friday Assistant",
+    "slug": "friday-assistant-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#141615",
+    "splash": {
+      "backgroundColor": "#141615"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.friday.assistant",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Allow Friday to attach images from your photo library for visual analysis."
+      }
+    },
+    "android": {
+      "package": "com.friday.assistant",
+      "adaptiveIcon": {
+        "backgroundColor": "#141615"
+      }
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Friday to attach photos for AI analysis."
+        }
+      ]
+    ]
+  }
+}

@@ -1,5 +1,7 @@
 node_modules
 .next
+.expo
+dist
 out
 .env
 .env.*
