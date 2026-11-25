@@ -2,12 +2,12 @@ import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import {
   ArrowRight,
-  BrainCircuit,
   Code2,
-  FileText,
   KeyRound,
+  PhoneCall,
   ShieldCheck,
-  Terminal,
+  UserPlus,
+  Wallet,
 } from "lucide-react-native";
 import { colors } from "../theme/colors";
 import { FridayMark } from "./FridayMark";
@@ -21,32 +21,36 @@ interface WelcomeViewProps {
 
 const STARTERS = [
   {
-    icon: Code2,
-    iconColor: colors.sage,
-    title: "Code + Architecture Table",
-    subtitle: "Compare REST vs GraphQL + code",
-    prompt: "Compare REST vs GraphQL vs tRPC in a clean Markdown table, then show a TypeScript Express route example with a tip callout.",
-  },
-  {
-    icon: FileText,
+    icon: UserPlus,
     iconColor: colors.accent,
-    title: "Analyze PDFs & images",
-    subtitle: "Attach docs or photos below",
-    prompt: "Summarize the key points I should look for when reviewing a technical contract PDF.",
+    title: "Save Contact & Hisaab",
+    subtitle: "Natural Hinglish / Hindi / English",
+    prompt:
+      "Sharma ji ka number 9876543210 save kar lo, aur yaad rakhna unko 500 rupaye electricity bill ke dene hain.",
   },
   {
-    icon: BrainCircuit,
+    icon: Wallet,
+    iconColor: colors.sage,
+    title: "Check Birthdays & Pending Dues",
+    subtitle: "Query your local SQLite vault",
+    prompt:
+      "Mere saved contacts, birthdays, aur kis-kis ke paise lene ya dene baki hain iska summary batao.",
+  },
+  {
+    icon: PhoneCall,
     iconColor: "#c89b84",
-    title: "Learn something new",
-    subtitle: "Hinglish, Hindi or English",
-    prompt: "React Native me state management aur hooks kaise kaam karte hain? Simple example ke saath samjhao.",
+    title: "Smart Call & SMS Draft",
+    subtitle: "Always asks confirmation first",
+    prompt:
+      "Sharma ji ko SMS draft bana do ki kal shaam tak ₹500 bhej dunga.",
   },
   {
-    icon: Terminal,
+    icon: Code2,
     iconColor: "#9fb7b5",
-    title: "Solve a bug",
-    subtitle: "Debug step by step",
-    prompt: "Give me a step-by-step checklist for debugging a failing mobile API request.",
+    title: "Normal AI Chat, Code & Tables",
+    subtitle: "Same input box for everything",
+    prompt:
+      "Compare REST vs GraphQL vs tRPC in a clean Markdown table, then show a TypeScript Express route example.",
   },
 ];
 
@@ -64,12 +68,12 @@ export function WelcomeView({
 
       <View style={styles.eyebrowRow}>
         <View style={styles.eyebrowLine} />
-        <Text style={styles.eyebrowText}>A LITTLE SPACE TO THINK</Text>
+        <Text style={styles.eyebrowText}>PERSONAL AI · CONTACTS & MEMORY</Text>
       </View>
 
       <Text style={styles.title}>What&apos;s on your mind?</Text>
       <Text style={styles.description}>
-        Start with a thought, or attach a PDF or photo. Powered by ultra-fast Groq inference using your own API key.
+        One smart chat box for everything — save contacts, track paise ka hisaab & birthdays, place calls/SMS with confirmation, or ask any coding & document question.
       </Text>
 
       {!hasApiKey && (
@@ -91,7 +95,7 @@ export function WelcomeView({
       )}
 
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionLabel}>A FEW PLACES TO START</Text>
+        <Text style={styles.sectionLabel}>TRY SAYING ANYTHING NATURALLY</Text>
         <Text style={styles.sectionCounter}>01 — 04</Text>
       </View>
 
@@ -125,7 +129,7 @@ export function WelcomeView({
       <View style={styles.footerNote}>
         <ShieldCheck size={13} color={colors.sage} />
         <Text style={styles.footerNoteText}>
-          Chats & API keys stay securely on your device
+          100% private — contacts & memories stored locally in SQLite
         </Text>
       </View>
     </View>
@@ -135,7 +139,7 @@ export function WelcomeView({
 const styles = StyleSheet.create({
   wrap: {
     paddingHorizontal: 20,
-    paddingTop: 26,
+    paddingTop: 24,
     paddingBottom: 24,
   },
   brandBadge: {
@@ -147,13 +151,13 @@ const styles = StyleSheet.create({
     borderColor: colors.accentBorder,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 16,
+    marginBottom: 14,
   },
   eyebrowRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginBottom: 10,
+    marginBottom: 8,
   },
   eyebrowLine: {
     width: 16,
@@ -162,22 +166,22 @@ const styles = StyleSheet.create({
   },
   eyebrowText: {
     fontSize: 9,
-    letterSpacing: 1.8,
+    letterSpacing: 1.7,
     color: colors.accent,
     fontWeight: "600",
   },
   title: {
-    fontSize: 28,
+    fontSize: 27,
     fontWeight: "600",
     color: colors.text,
     letterSpacing: -0.8,
   },
   description: {
-    fontSize: 13.5,
-    lineHeight: 21,
+    fontSize: 13,
+    lineHeight: 20,
     color: colors.muted,
-    marginTop: 8,
-    marginBottom: 22,
+    marginTop: 7,
+    marginBottom: 20,
   },
   setupKeyBanner: {
     flexDirection: "row",
@@ -188,7 +192,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accentSoft,
     borderWidth: 1,
     borderColor: colors.accentBorder,
-    marginBottom: 24,
+    marginBottom: 22,
   },
   setupKeyIcon: {
     width: 38,
@@ -229,14 +233,14 @@ const styles = StyleSheet.create({
     color: colors.accent,
   },
   grid: {
-    gap: 9,
+    gap: 8,
   },
   starterCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
+    paddingVertical: 13,
+    paddingHorizontal: 13,
     borderRadius: 12,
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -271,7 +275,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
-    marginTop: 20,
+    marginTop: 18,
   },
   footerNoteText: {
     fontSize: 11,

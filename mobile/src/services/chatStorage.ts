@@ -19,7 +19,11 @@ export async function loadSavedChatState(): Promise<{
       ? parsed.map((c: Conversation) => ({
           ...c,
           messages: Array.isArray(c.messages)
-            ? c.messages.map((m) => ({ ...m, isStreaming: false }))
+            ? c.messages.map((m) => ({
+                ...m,
+                isStreaming: false,
+                activeToolLabel: undefined,
+              }))
             : [],
         }))
       : [];
@@ -34,7 +38,9 @@ export async function loadSavedChatState(): Promise<{
 export async function saveConversations(conversations: Conversation[]): Promise<void> {
   const sanitized = conversations.map((c) => ({
     ...c,
-    messages: c.messages.map(({ isStreaming: _s, ...rest }) => rest),
+    messages: c.messages.map(
+      ({ isStreaming: _s, activeToolLabel: _a, ...rest }) => rest
+    ),
   }));
 
   try {

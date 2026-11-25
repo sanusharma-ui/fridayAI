@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react-native";
 import { ComposerAttachmentChip } from "./src/components/AttachmentChips";
+import { ContactsModal } from "./src/components/ContactsModal";
 import { ImagePreviewModal } from "./src/components/ImagePreviewModal";
 import { MessageBubble } from "./src/components/MessageBubble";
 import { SettingsModal } from "./src/components/SettingsModal";
@@ -38,6 +39,7 @@ import {
   saveActiveConversationId,
   saveConversations,
 } from "./src/services/chatStorage";
+import { getContactsDashboardSummary } from "./src/services/contactsDb";
 import {
   DEFAULT_MODELS,
   DEFAULT_SETTINGS,
@@ -46,15 +48,25 @@ import {
   saveCachedModels,
   saveSettings,
 } from "./src/services/settingsStorage";
+import {
+  describeToolActivity,
+  executeClientToolCalls,
+} from "./src/services/toolExecutor";
 import { colors } from "./src/theme/colors";
 import type {
+  AgentLoopMessage,
   AppSettings,
   Attachment,
   ChatMessage,
   ConnectionState,
   Conversation,
   GroqModelOption,
+  PendingDeviceAction,
+  ToolBadgeItem,
+  ToolCallPayload,
 } from "./src/types";
+
+const MAX_AGENT_TOOL_ROUNDS = 5;
 
 function makeId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
@@ -84,6 +96,7 @@ function FridayWorkspace() {
   const [hydrated, setHydrated] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [contactsCount, setContactsCount] = useState(0);
 
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [availableModels, setAvailableModels] =
@@ -99,6 +112,7 @@ function FridayWorkspace() {
   const [pendingChatId, setPendingChatId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [contactsOpen, setContactsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState<Attachment | null>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
@@ -120,7 +134,15 @@ function FridayWorkspace() {
     return "ready";
   })();
 
-  // Load saved state
+  const refreshContactsSummary = useCallback(async () => {
+    try {
+      const summary = await getContactsDashboardSummary();
+      setContactsCount(summary.contactsCount);
+    } catch {
+      // Ignore initial DB read error
+    }
+  }, []);
+
   useEffect(() => {
     (async () => {
       const [chatState, savedSettings, cachedModels] = await Promise.all([
@@ -133,10 +155,10 @@ function FridayWorkspace() {
       setSettings(savedSettings);
       setAvailableModels(cachedModels);
       setHydrated(true);
+      void refreshContactsSummary();
     })();
-  }, []);
+  }, [refreshContactsSummary]);
 
-  // Persist chats when not mid-stream (avoids heavy AsyncStorage writes every 30ms!)
   useEffect(() => {
     if (hydrated && !isStreamingAny) {
       void saveConversations(conversations);
@@ -225,6 +247,27 @@ function FridayWorkspace() {
     );
   }
 
+  function handleUpdateMessageAction(
+    messageId: string,
+    actionId: string,
+    patch: Partial<PendingDeviceAction>
+  ) {
+    setConversations((prev) =>
+      prev.map((c) => ({
+        ...c,
+        messages: c.messages.map((m) => {
+          if (m.id !== messageId || !m.pendingActions) return m;
+          return {
+            ...m,
+            pendingActions: m.pendingActions.map((act) =>
+              act.id === actionId ? { ...act, ...patch } : act
+            ),
+          };
+        }),
+      }))
+    );
+  }
+
   async function handlePickImages() {
     setShowAttachMenu(false);
     setPickingFiles(true);
@@ -287,7 +330,6 @@ function FridayWorkspace() {
     let baseMessages = priorMessages;
 
     if (mode === "regenerate" && priorMessages.length > 0) {
-      // Remove the trailing assistant message so we regenerate fresh
       const last = priorMessages[priorMessages.length - 1];
       baseMessages =
         last.role === "assistant" ? priorMessages.slice(0, -1) : priorMessages;
@@ -358,7 +400,6 @@ function FridayWorkspace() {
       setDraft("");
       setAttachments([]);
     } else if (activeConversation) {
-      // Retry or Regenerate: append fresh streaming assistant placeholder
       setConversations((prev) =>
         prev.map((c) =>
           c.id === activeConversation.id
@@ -383,15 +424,16 @@ function FridayWorkspace() {
     const abortController = new AbortController();
     streamAbortRef.current = abortController;
 
-    // Smooth adaptive streaming buffer so ultra-fast Groq bursts flow smoothly at ~35fps
     let rawReceivedContent = "";
     let displayedContent = "";
     let rawReasoning = "";
     let displayedReasoning = "";
     let collectedNotices: string[] = [];
+    let collectedActions: PendingDeviceAction[] = [];
+    let collectedBadges: ToolBadgeItem[] = [];
     let finalModelUsed: string | undefined;
-    let finalDurationMs: number | undefined;
-    let networkFinished = false;
+    let totalDurationMs = 0;
+    let allRoundsFinished = false;
 
     const patchAssistantMessage = (patch: Partial<ChatMessage>) => {
       setConversations((prev) =>
@@ -428,7 +470,6 @@ function FridayWorkspace() {
 
       if (displayedContent.length < rawReceivedContent.length) {
         const rem = rawReceivedContent.length - displayedContent.length;
-        // Adaptive step: smooth word-by-word feel without falling behind long streams
         const step = abortController.signal.aborted
           ? rem
           : Math.max(4, Math.ceil(rem * 0.26));
@@ -436,7 +477,6 @@ function FridayWorkspace() {
           rawReceivedContent.length,
           displayedContent.length + step
         );
-        // Snap gently to whitespace boundary if within 4 chars for cleaner word reveal
         while (
           nextEnd < rawReceivedContent.length &&
           nextEnd - displayedContent.length < step + 4 &&
@@ -453,6 +493,10 @@ function FridayWorkspace() {
           content: displayedContent,
           reasoning: displayedReasoning || undefined,
           notices: collectedNotices.length ? [...collectedNotices] : undefined,
+          pendingActions: collectedActions.length
+            ? [...collectedActions]
+            : undefined,
+          toolBadges: collectedBadges.length ? [...collectedBadges] : undefined,
         });
         if (!userScrolledUpRef.current) {
           scrollRef.current?.scrollToEnd({ animated: false });
@@ -460,7 +504,7 @@ function FridayWorkspace() {
       }
 
       if (
-        networkFinished &&
+        allRoundsFinished &&
         displayedContent.length >= rawReceivedContent.length &&
         displayedReasoning.length >= rawReasoning.length
       ) {
@@ -469,73 +513,176 @@ function FridayWorkspace() {
       }
     }, 28);
 
-    try {
-      await streamChatMessage(
-        {
-          backendUrl: settings.backendUrl,
-          apiKey: settings.groqApiKey,
-          message: content,
-          history,
-          attachments: contextAttachments,
-          model: settings.selectedModel,
-          visionModel: settings.selectedVisionModel,
-        },
-        {
-          onMeta: (meta) => {
-            if (meta.notices?.length) {
-              collectedNotices = [...collectedNotices, ...meta.notices];
-              patchAssistantMessage({ notices: [...collectedNotices] });
-            }
-            if (
-              meta.extractedTexts &&
-              Object.keys(meta.extractedTexts).length > 0
-            ) {
-              setConversations((prev) =>
-                prev.map((c) => {
-                  if (c.id !== targetId) return c;
-                  return {
-                    ...c,
-                    messages: c.messages.map((m) => {
-                      if (m.id !== userMessageId || !m.attachments) return m;
-                      return {
-                        ...m,
-                        attachments: m.attachments.map((a) => ({
-                          ...a,
-                          extractedText:
-                            meta.extractedTexts?.[a.id] || a.extractedText,
-                        })),
-                      };
-                    }),
-                  };
-                })
-              );
-            }
-          },
-          onNotice: (notice) => {
-            collectedNotices = [...collectedNotices, notice];
-            patchAssistantMessage({ notices: [...collectedNotices] });
-          },
-          onReasoningDelta: (delta) => {
-            rawReasoning += delta;
-          },
-          onContentDelta: (delta) => {
-            rawReceivedContent += delta;
-          },
-          onDone: (info) => {
-            finalModelUsed = info.modelUsed;
-            finalDurationMs = info.durationMs;
-          },
-        },
-        abortController.signal
-      );
+    const overallStartedAt = Date.now();
 
-      networkFinished = true;
+    try {
+      const agentMessages: AgentLoopMessage[] = [];
+
+      // Multi-Step Agentic Tool Execution Loop (Seamless SQLite + Call/SMS Confirmation + Normal Chat)
+      for (let round = 0; round < MAX_AGENT_TOOL_ROUNDS; round++) {
+        if (abortController.signal.aborted) break;
+
+        let pendingRoundToolCalls: ToolCallPayload[] = [];
+        let roundAssistantText = "";
+
+        await streamChatMessage(
+          {
+            backendUrl: settings.backendUrl,
+            apiKey: settings.groqApiKey,
+            message: content,
+            history,
+            attachments: contextAttachments,
+            agentMessages,
+            enableTools: round < MAX_AGENT_TOOL_ROUNDS - 1,
+            model: settings.selectedModel,
+            visionModel: settings.selectedVisionModel,
+          },
+          {
+            onMeta: (meta) => {
+              if (meta.notices?.length) {
+                collectedNotices = [...collectedNotices, ...meta.notices];
+                patchAssistantMessage({ notices: [...collectedNotices] });
+              }
+              if (
+                meta.extractedTexts &&
+                Object.keys(meta.extractedTexts).length > 0
+              ) {
+                setConversations((prev) =>
+                  prev.map((c) => {
+                    if (c.id !== targetId) return c;
+                    return {
+                      ...c,
+                      messages: c.messages.map((m) => {
+                        if (m.id !== userMessageId || !m.attachments) return m;
+                        return {
+                          ...m,
+                          attachments: m.attachments.map((a) => ({
+                            ...a,
+                            extractedText:
+                              meta.extractedTexts?.[a.id] || a.extractedText,
+                          })),
+                        };
+                      }),
+                    };
+                  })
+                );
+              }
+            },
+            onNotice: (notice) => {
+              collectedNotices = [...collectedNotices, notice];
+              patchAssistantMessage({ notices: [...collectedNotices] });
+            },
+            onReasoningDelta: (delta) => {
+              rawReasoning += delta;
+            },
+            onContentDelta: (delta) => {
+              // Strip accidental raw <function=...> text if a model emitted one inline
+              const cleanDelta = delta.replace(/<function=[\s\S]*$/g, "");
+              if (cleanDelta) {
+                rawReceivedContent += cleanDelta;
+              }
+            },
+            onToolCalls: (payload) => {
+              pendingRoundToolCalls = payload.toolCalls;
+              roundAssistantText = payload.assistantContent;
+              if (payload.modelUsed) finalModelUsed = payload.modelUsed;
+            },
+            onDone: (info) => {
+              if (info.modelUsed) finalModelUsed = info.modelUsed;
+            },
+          },
+          abortController.signal
+        );
+
+        if (pendingRoundToolCalls.length === 0 || abortController.signal.aborted) {
+          // Final text answer completed!
+          patchAssistantMessage({ activeToolLabel: undefined });
+          break;
+        }
+
+        // Clean any raw `<function=...>` tag if model leaked one before tool call
+        if (rawReceivedContent.includes("<function=")) {
+          rawReceivedContent = rawReceivedContent
+            .replace(/<function=[\s\S]*?<\/function>/g, "")
+            .trim();
+          displayedContent = rawReceivedContent;
+        } else if (rawReceivedContent.trim()) {
+          rawReceivedContent = `${rawReceivedContent.trim()}\n\n`;
+        }
+
+        // Show live tool status pill in Friday's bubble
+        const activityLabel = describeToolActivity(
+          pendingRoundToolCalls[0].name
+        );
+        patchAssistantMessage({ activeToolLabel: activityLabel });
+
+        // Execute tools locally against SQLite / Android Confirmation Card builder
+        const executed = await executeClientToolCalls(pendingRoundToolCalls);
+
+        if (executed.pendingActions.length > 0) {
+          collectedActions = [...collectedActions, ...executed.pendingActions];
+        }
+        if (executed.badges.length > 0) {
+          collectedBadges = [...collectedBadges, ...executed.badges];
+          void refreshContactsSummary();
+        }
+
+        patchAssistantMessage({
+          pendingActions: collectedActions.length
+            ? [...collectedActions]
+            : undefined,
+          toolBadges: collectedBadges.length ? [...collectedBadges] : undefined,
+        });
+        if (!userScrolledUpRef.current) {
+          scrollToBottom(true);
+        }
+
+        // Append OpenAI-compatible assistant tool_calls turn + tool results for next round
+        agentMessages.push({
+          role: "assistant",
+          content: roundAssistantText.trim() || null,
+          tool_calls: pendingRoundToolCalls.map((tc) => ({
+            id: tc.id,
+            type: "function" as const,
+            function: {
+              name: tc.name,
+              arguments: tc.rawArguments || JSON.stringify(tc.arguments || {}),
+            },
+          })),
+        });
+
+        for (const out of executed.toolOutputs) {
+          agentMessages.push({
+            role: "tool",
+            tool_call_id: out.toolCallId,
+            content: out.outputJson,
+          });
+        }
+      }
+
+      patchAssistantMessage({ activeToolLabel: undefined });
+      totalDurationMs = Date.now() - overallStartedAt;
+
+      // Fallback message if model prepared an action card without extra prose
+      if (!rawReceivedContent.trim() && collectedActions.length > 0) {
+        const firstAct = collectedActions[0];
+        rawReceivedContent =
+          firstAct.type === "call"
+            ? `Maine **${firstAct.contactName}** ke liye call card ready kar diya hai. Dial karne ke liye neeche **Confirm Call** tap karein.`
+            : `Maine **${firstAct.contactName}** ke liye SMS draft tayyar kar diya hai. Review karke **Confirm & Open SMS** tap karein.`;
+      }
+
+      allRoundsFinished = true;
       await drainPromise;
 
       const wasStopped = abortController.signal.aborted;
 
-      if (!rawReceivedContent.trim() && wasStopped) {
-        // User stopped before any content arrived — remove empty placeholder
+      if (
+        !rawReceivedContent.trim() &&
+        collectedActions.length === 0 &&
+        collectedBadges.length === 0 &&
+        wasStopped
+      ) {
         setConversations((prev) =>
           prev.map((c) =>
             c.id === targetId
@@ -551,8 +698,13 @@ function FridayWorkspace() {
           content: rawReceivedContent,
           reasoning: rawReasoning || undefined,
           notices: collectedNotices.length ? [...collectedNotices] : undefined,
+          pendingActions: collectedActions.length
+            ? [...collectedActions]
+            : undefined,
+          toolBadges: collectedBadges.length ? [...collectedBadges] : undefined,
           modelUsed: finalModelUsed || settings.selectedModel,
-          durationMs: finalDurationMs,
+          durationMs: totalDurationMs,
+          activeToolLabel: undefined,
           isStreaming: false,
           stopped: wasStopped,
         });
@@ -564,8 +716,11 @@ function FridayWorkspace() {
       const msg = err instanceof Error ? err.message : "Something went wrong.";
       setError(msg);
 
-      // Remove empty assistant placeholder if request failed before streaming content
-      if (!rawReceivedContent.trim()) {
+      if (
+        !rawReceivedContent.trim() &&
+        collectedActions.length === 0 &&
+        collectedBadges.length === 0
+      ) {
         setConversations((prev) =>
           prev.map((c) =>
             c.id === targetId
@@ -579,6 +734,11 @@ function FridayWorkspace() {
       } else {
         patchAssistantMessage({
           content: rawReceivedContent,
+          pendingActions: collectedActions.length
+            ? [...collectedActions]
+            : undefined,
+          toolBadges: collectedBadges.length ? [...collectedBadges] : undefined,
+          activeToolLabel: undefined,
           isStreaming: false,
           stopped: true,
         });
@@ -609,7 +769,9 @@ function FridayWorkspace() {
         title={activeConversation?.title || "New conversation"}
         connectionState={connectionState}
         hasApiKey={hasUsableKey}
+        contactsCount={contactsCount}
         onOpenDrawer={() => setDrawerOpen(true)}
+        onOpenContacts={() => setContactsOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
       />
 
@@ -660,6 +822,8 @@ function FridayWorkspace() {
                     message={msg}
                     isLatestAssistant={msg.id === lastAssistantMsgId}
                     onOpenImage={(att) => setPreviewImage(att)}
+                    onOpenContacts={() => setContactsOpen(true)}
+                    onUpdateAction={handleUpdateMessageAction}
                     onRegenerate={
                       lastUserMsg && !isStreamingAny
                         ? () =>
@@ -692,7 +856,7 @@ function FridayWorkspace() {
           )}
         </View>
 
-        {/* Composer Region */}
+        {/* Single Unified Smart Composer */}
         <View style={styles.composerOuter}>
           {error ? (
             <View style={styles.errorBanner}>
@@ -803,7 +967,7 @@ function FridayWorkspace() {
                 placeholder={
                   attachments.length > 0
                     ? "Ask Friday about attached file(s)…"
-                    : "Message Friday…"
+                    : "Chat, save contacts/hisaab, or ask to call/SMS…"
                 }
                 placeholderTextColor={colors.subtle}
                 multiline
@@ -867,7 +1031,7 @@ function FridayWorkspace() {
                   ]}
                 />
                 <Text style={styles.modelPillText} numberOfLines={1}>
-                  {settings.selectedModel} · Groq Stream
+                  {settings.selectedModel} · Smart Tools ON
                 </Text>
               </Pressable>
               {isStreamingAny ? (
@@ -886,12 +1050,20 @@ function FridayWorkspace() {
         activeId={activeId}
         groqApiKey={settings.groqApiKey}
         selectedModel={settings.selectedModel}
+        contactsCount={contactsCount}
         onClose={() => setDrawerOpen(false)}
         onNewChat={handleNewChat}
         onSelectChat={handleSelectChat}
         onDeleteChat={handleDeleteChat}
         onRenameChat={handleRenameChat}
+        onOpenContacts={() => setContactsOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
+      />
+
+      <ContactsModal
+        visible={contactsOpen}
+        onClose={() => setContactsOpen(false)}
+        onDataChanged={() => void refreshContactsSummary()}
       />
 
       <SettingsModal

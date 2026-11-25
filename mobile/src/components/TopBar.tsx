@@ -1,6 +1,13 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { KeyRound, Menu, Settings, Wifi, WifiOff } from "lucide-react-native";
+import {
+  KeyRound,
+  Menu,
+  Settings,
+  Users,
+  Wifi,
+  WifiOff,
+} from "lucide-react-native";
 import { colors } from "../theme/colors";
 import type { ConnectionState } from "../types";
 
@@ -8,7 +15,9 @@ interface TopBarProps {
   title: string;
   connectionState: ConnectionState;
   hasApiKey: boolean;
+  contactsCount: number;
   onOpenDrawer: () => void;
+  onOpenContacts: () => void;
   onOpenSettings: () => void;
 }
 
@@ -16,13 +25,15 @@ export function TopBar({
   title,
   connectionState,
   hasApiKey,
+  contactsCount,
   onOpenDrawer,
+  onOpenContacts,
   onOpenSettings,
 }: TopBarProps) {
   const statusInfo = (() => {
     if (!hasApiKey || connectionState === "missing_key") {
       return {
-        label: "Setup Key",
+        label: "Key",
         dotColor: colors.warning,
         bgColor: colors.warningBg,
         icon: "key" as const,
@@ -30,7 +41,7 @@ export function TopBar({
     }
     if (connectionState === "ready") {
       return {
-        label: "Groq Ready",
+        label: "Groq",
         dotColor: colors.sage,
         bgColor: colors.sageSoft,
         icon: "online" as const,
@@ -38,7 +49,7 @@ export function TopBar({
     }
     if (connectionState === "checking") {
       return {
-        label: "Checking…",
+        label: "…",
         dotColor: colors.muted,
         bgColor: colors.surface,
         icon: "none" as const,
@@ -83,9 +94,27 @@ export function TopBar({
         >
           <View style={[styles.dot, { backgroundColor: statusInfo.dotColor }]} />
           <Text style={styles.statusText}>{statusInfo.label}</Text>
-          {statusInfo.icon === "key" && <KeyRound size={12} color={colors.warning} />}
-          {statusInfo.icon === "online" && <Wifi size={12} color={colors.sage} />}
-          {statusInfo.icon === "offline" && <WifiOff size={12} color={colors.danger} />}
+          {statusInfo.icon === "key" && <KeyRound size={11} color={colors.warning} />}
+          {statusInfo.icon === "online" && <Wifi size={11} color={colors.sage} />}
+          {statusInfo.icon === "offline" && <WifiOff size={11} color={colors.danger} />}
+        </Pressable>
+
+        <Pressable
+          onPress={onOpenContacts}
+          style={({ pressed }) => [
+            styles.contactsBtn,
+            pressed && styles.iconBtnPressed,
+          ]}
+          accessibilityLabel="Open Contacts and Memories"
+        >
+          <Users size={18} color={colors.accent} />
+          {contactsCount > 0 && (
+            <View style={styles.countBadge}>
+              <Text style={styles.countBadgeText}>
+                {contactsCount > 99 ? "99+" : contactsCount}
+              </Text>
+            </View>
+          )}
         </Pressable>
 
         <Pressable
@@ -97,7 +126,7 @@ export function TopBar({
           ]}
           accessibilityLabel="Open settings"
         >
-          <Settings size={19} color={!hasApiKey ? colors.accent : colors.textSecondary} />
+          <Settings size={18} color={!hasApiKey ? colors.accent : colors.textSecondary} />
         </Pressable>
       </View>
     </View>
@@ -110,7 +139,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     borderBottomWidth: 1,
     borderBottomColor: colors.lineSubtle,
     backgroundColor: colors.bg,
@@ -119,13 +148,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     flex: 1,
-    marginRight: 10,
-    gap: 10,
+    marginRight: 8,
+    gap: 8,
   },
   right: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 7,
   },
   iconBtn: {
     width: 38,
@@ -158,8 +187,8 @@ const styles = StyleSheet.create({
   statusPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
+    gap: 5,
+    paddingHorizontal: 9,
     paddingVertical: 6,
     borderRadius: 999,
     borderWidth: 1,
@@ -174,6 +203,33 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.textSecondary,
     fontWeight: "500",
+  },
+  contactsBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.accentBorder,
+    backgroundColor: colors.accentSoft,
+  },
+  countBadge: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: colors.sage,
+    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  countBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: colors.ctaText,
   },
   settingsBtn: {
     width: 38,

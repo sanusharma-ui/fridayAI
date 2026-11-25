@@ -21,6 +21,7 @@ import {
   Search,
   Settings,
   Trash2,
+  Users,
   X,
 } from "lucide-react-native";
 import { maskApiKey } from "../services/settingsStorage";
@@ -34,11 +35,13 @@ interface SidebarDrawerProps {
   activeId: string | null;
   groqApiKey: string;
   selectedModel: string;
+  contactsCount: number;
   onClose: () => void;
   onNewChat: () => void;
   onSelectChat: (id: string) => void;
   onDeleteChat: (id: string) => void;
   onRenameChat: (id: string, title: string) => void;
+  onOpenContacts: () => void;
   onOpenSettings: () => void;
 }
 
@@ -48,11 +51,13 @@ export function SidebarDrawer({
   activeId,
   groqApiKey,
   selectedModel,
+  contactsCount,
   onClose,
   onNewChat,
   onSelectChat,
   onDeleteChat,
   onRenameChat,
+  onOpenContacts,
   onOpenSettings,
 }: SidebarDrawerProps) {
   const [query, setQuery] = useState("");
@@ -101,7 +106,6 @@ export function SidebarDrawer({
       <View style={styles.backdropWrap}>
         <View style={styles.drawer}>
           <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
-            {/* Brand Header */}
             <View style={styles.brandHead}>
               <View style={styles.brandRow}>
                 <FridayMark size={25} color={colors.accent} />
@@ -116,10 +120,11 @@ export function SidebarDrawer({
                   <ChevronLeft size={20} color={colors.muted} />
                 </Pressable>
               </View>
-              <Text style={styles.brandCaption}>A quieter kind of workspace.</Text>
+              <Text style={styles.brandCaption}>
+                Personal AI, Contacts & Memory Vault.
+              </Text>
             </View>
 
-            {/* New Chat + Search */}
             <View style={styles.actionsWrap}>
               <Pressable
                 onPress={() => {
@@ -151,13 +156,11 @@ export function SidebarDrawer({
 
             <View style={styles.divider} />
 
-            {/* History Header */}
             <View style={styles.historyHeader}>
               <Text style={styles.historyLabel}>CONVERSATIONS</Text>
               <Text style={styles.historyCount}>{conversations.length}</Text>
             </View>
 
-            {/* History List */}
             <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
               {filtered.length === 0 ? (
                 <View style={styles.emptyBox}>
@@ -247,9 +250,33 @@ export function SidebarDrawer({
               )}
             </ScrollView>
 
-            {/* Footer: Settings & Groq Key Shortcut */}
             <View style={styles.footer}>
               <View style={styles.footerRule} />
+
+              <Pressable
+                onPress={() => {
+                  onClose();
+                  onOpenContacts();
+                }}
+                style={({ pressed }) => [
+                  styles.settingsCard,
+                  { marginBottom: 8 },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <View style={styles.contactsCardIcon}>
+                  <Users size={16} color={colors.accent} />
+                </View>
+                <View style={styles.settingsCardCopy}>
+                  <Text style={styles.settingsCardTitle}>
+                    Contacts & Memories
+                  </Text>
+                  <Text style={styles.settingsCardSub} numberOfLines={1}>
+                    {contactsCount} saved locally in SQLite
+                  </Text>
+                </View>
+              </Pressable>
+
               <Pressable
                 onPress={() => {
                   onClose();
@@ -259,9 +286,9 @@ export function SidebarDrawer({
               >
                 <View style={styles.settingsCardIcon}>
                   {groqApiKey ? (
-                    <Settings size={17} color={colors.sage} />
+                    <Settings size={16} color={colors.sage} />
                   ) : (
-                    <KeyRound size={17} color={colors.warning} />
+                    <KeyRound size={16} color={colors.warning} />
                   )}
                 </View>
                 <View style={styles.settingsCardCopy}>
@@ -312,7 +339,7 @@ const styles = StyleSheet.create({
   brandHead: {
     paddingHorizontal: 20,
     paddingTop: 18,
-    paddingBottom: 20,
+    paddingBottom: 18,
   },
   brandRow: {
     flexDirection: "row",
@@ -380,7 +407,7 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: colors.line,
     marginHorizontal: 16,
-    marginVertical: 18,
+    marginVertical: 16,
   },
   historyHeader: {
     flexDirection: "row",
@@ -477,27 +504,35 @@ const styles = StyleSheet.create({
   },
   footer: {
     paddingHorizontal: 16,
-    paddingBottom: 14,
+    paddingBottom: 12,
   },
   footerRule: {
     height: 1,
     backgroundColor: colors.line,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   settingsCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: 11,
-    padding: 11,
+    padding: 10,
     borderRadius: 11,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.line,
   },
+  contactsCardIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: colors.accentSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   settingsCardIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 9,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     backgroundColor: colors.surfaceElevated,
     alignItems: "center",
     justifyContent: "center",
@@ -506,20 +541,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   settingsCardTitle: {
-    fontSize: 13,
+    fontSize: 12.5,
     fontWeight: "600",
     color: colors.text,
   },
   settingsCardSub: {
-    fontSize: 11,
+    fontSize: 10.5,
     color: colors.muted,
-    marginTop: 2,
+    marginTop: 1,
   },
   bottomMeta: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginTop: 14,
+    marginTop: 11,
     paddingHorizontal: 4,
   },
   bottomMetaText: {

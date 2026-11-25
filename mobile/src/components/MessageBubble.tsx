@@ -11,15 +11,18 @@ import * as Clipboard from "expo-clipboard";
 import {
   Brain,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   Copy,
   Info,
   RotateCcw,
   Share2,
+  Zap,
 } from "lucide-react-native";
 import { colors } from "../theme/colors";
-import type { Attachment, ChatMessage } from "../types";
+import type { Attachment, ChatMessage, PendingDeviceAction } from "../types";
+import { ActionConfirmCard } from "./ActionConfirmCard";
 import { MessageAttachmentsList } from "./AttachmentChips";
 import { FridayMark } from "./FridayMark";
 import { MarkdownContent } from "./MarkdownContent";
@@ -45,11 +48,19 @@ export function MessageBubble({
   message,
   isLatestAssistant,
   onOpenImage,
+  onOpenContacts,
+  onUpdateAction,
   onRegenerate,
 }: {
   message: ChatMessage;
   isLatestAssistant?: boolean;
   onOpenImage: (att: Attachment) => void;
+  onOpenContacts?: () => void;
+  onUpdateAction?: (
+    messageId: string,
+    actionId: string,
+    patch: Partial<PendingDeviceAction>
+  ) => void;
   onRegenerate?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -102,7 +113,10 @@ export function MessageBubble({
     message.isStreaming && !message.content && message.reasoning
   );
   const isWaitingFirstToken = Boolean(
-    message.isStreaming && !message.content && !message.reasoning
+    message.isStreaming &&
+      !message.content &&
+      !message.reasoning &&
+      !message.activeToolLabel
   );
 
   return (
@@ -133,7 +147,34 @@ export function MessageBubble({
           ) : null}
         </View>
 
-        {/* Notices (PDF excerpts, vision model auto-switch, etc.) */}
+        {/* Live Tool Activity Pill */}
+        {message.activeToolLabel ? (
+          <View style={styles.activeToolPill}>
+            <ActivityIndicator size="small" color={colors.accent} />
+            <Zap size={12} color={colors.accent} />
+            <Text style={styles.activeToolText}>{message.activeToolLabel}</Text>
+          </View>
+        ) : null}
+
+        {/* Saved Contact / Memory Badges */}
+        {message.toolBadges && message.toolBadges.length > 0 ? (
+          <View style={styles.badgesWrap}>
+            {message.toolBadges.map((b) => (
+              <Pressable
+                key={b.id}
+                onPress={onOpenContacts}
+                style={styles.savedBadge}
+              >
+                <CheckCircle2 size={12} color={colors.sage} />
+                <Text style={styles.savedBadgeText} numberOfLines={1}>
+                  {b.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+
+        {/* Notices */}
         {message.notices && message.notices.length > 0 && (
           <View style={styles.noticesWrap}>
             {message.notices.map((notice, idx) => (
@@ -180,20 +221,35 @@ export function MessageBubble({
           </View>
         ) : null}
 
-        {/* Waiting for very first token */}
+        {/* Main Markdown Content */}
         {isWaitingFirstToken ? (
           <View style={styles.waitingRow}>
             <ActivityIndicator size="small" color={colors.accent} />
-            <Text style={styles.waitingText}>Connecting to Groq…</Text>
+            <Text style={styles.waitingText}>Thinking…</Text>
           </View>
-        ) : (
+        ) : message.content || message.isStreaming ? (
           <MarkdownContent
             content={message.content}
-            isStreaming={message.isStreaming}
+            isStreaming={Boolean(message.isStreaming && !message.activeToolLabel)}
           />
-        )}
+        ) : null}
 
-        {/* Action Toolbar (shown once message has content & finished streaming) */}
+        {/* Interactive Call / SMS Confirmation Cards */}
+        {message.pendingActions && message.pendingActions.length > 0 ? (
+          <View style={styles.actionsList}>
+            {message.pendingActions.map((act) => (
+              <ActionConfirmCard
+                key={act.id}
+                action={act}
+                onUpdateAction={(actionId, patch) =>
+                  onUpdateAction?.(message.id, actionId, patch)
+                }
+              />
+            ))}
+          </View>
+        ) : null}
+
+        {/* Action Toolbar */}
         {!message.isStreaming && message.content.length > 0 && (
           <View style={styles.aiTools}>
             <Pressable onPress={handleCopy} style={styles.toolBtn} hitSlop={6}>
@@ -310,6 +366,51 @@ const styles = StyleSheet.create({
   stoppedTag: {
     fontSize: 10,
     color: colors.warning,
+  },
+  activeToolPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: colors.accentSoft,
+    borderWidth: 1,
+    borderColor: colors.accentBorder,
+    marginBottom: 9,
+  },
+  activeToolText: {
+    fontSize: 11.5,
+    fontWeight: "600",
+    color: colors.accent,
+  },
+  badgesWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 9,
+  },
+  savedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 7,
+    backgroundColor: colors.sageSoft,
+    borderWidth: 1,
+    borderColor: colors.sageBorder,
+    maxWidth: "100%",
+  },
+  savedBadgeText: {
+    fontSize: 11.5,
+    fontWeight: "600",
+    color: colors.sage,
+    flexShrink: 1,
+  },
+  actionsList: {
+    gap: 6,
   },
   noticesWrap: {
     gap: 6,

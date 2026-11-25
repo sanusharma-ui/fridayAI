@@ -1,7 +1,12 @@
 import Constants from "expo-constants";
 import { fetch as expoFetch } from "expo/fetch";
 import { Platform } from "react-native";
-import type { Attachment, GroqModelOption } from "../types";
+import type {
+  AgentLoopMessage,
+  Attachment,
+  GroqModelOption,
+  ToolCallPayload,
+} from "../types";
 
 export function getAutoDetectedBackendUrl(): string {
   const hostUri =
@@ -133,6 +138,8 @@ export interface SendChatParams {
   message: string;
   history: { role: "user" | "assistant"; content: string }[];
   attachments: Attachment[];
+  agentMessages?: AgentLoopMessage[];
+  enableTools?: boolean;
   model: string;
   visionModel: string;
 }
@@ -140,6 +147,7 @@ export interface SendChatParams {
 export interface SendChatResult {
   response: string;
   reasoning?: string;
+  toolCalls?: ToolCallPayload[];
   modelUsed?: string;
   notices?: string[];
   extractedTexts?: Record<string, string>;
@@ -172,6 +180,8 @@ export async function sendChatMessage(params: SendChatParams): Promise<SendChatR
             dataUrl: att.dataUrl,
             extractedText: att.extractedText,
           })),
+          agentMessages: params.agentMessages,
+          enableTools: params.enableTools,
           model: params.model,
           visionModel: params.visionModel,
         }),
@@ -190,6 +200,7 @@ export async function sendChatMessage(params: SendChatParams): Promise<SendChatR
   let data: {
     response?: string;
     reasoning?: string;
+    toolCalls?: ToolCallPayload[];
     error?: string;
     modelUsed?: string;
     notices?: string[];
@@ -202,13 +213,14 @@ export async function sendChatMessage(params: SendChatParams): Promise<SendChatR
     throw new Error(`Invalid response from backend (HTTP ${res.status}).`);
   }
 
-  if (!res.ok || typeof data.response !== "string") {
+  if (!res.ok) {
     throw new Error(data.error || `Request failed with status ${res.status}.`);
   }
 
   return {
-    response: data.response,
+    response: data.response || "",
     reasoning: data.reasoning,
+    toolCalls: data.toolCalls,
     modelUsed: data.modelUsed,
     notices: data.notices,
     extractedTexts: data.extractedTexts,
@@ -223,6 +235,11 @@ export interface StreamChatCallbacks {
   onNotice?: (notice: string) => void;
   onReasoningDelta?: (delta: string) => void;
   onContentDelta: (delta: string) => void;
+  onToolCalls?: (payload: {
+    assistantContent: string;
+    toolCalls: ToolCallPayload[];
+    modelUsed?: string;
+  }) => void;
   onDone?: (info: { modelUsed?: string; durationMs?: number }) => void;
 }
 
@@ -251,6 +268,8 @@ export async function streamChatMessage(
       dataUrl: att.dataUrl,
       extractedText: att.extractedText,
     })),
+    agentMessages: params.agentMessages,
+    enableTools: params.enableTools,
     model: params.model,
     visionModel: params.visionModel,
   });
@@ -263,14 +282,13 @@ export async function streamChatMessage(
       body: bodyPayload,
       signal,
     });
-  } catch (err) {
+  } catch {
     if (signal?.aborted) return;
     throw new Error(
       `Cannot connect to Friday backend (${baseUrl}). Ensure backend is running ("npm run dev") or check Settings.`
     );
   }
 
-  // Fallback if user hasn't restarted an older backend that didn't have /api/chat/stream yet
   if (res.status === 404) {
     const started = Date.now();
     const fallback = await sendChatMessage(params);
@@ -279,6 +297,14 @@ export async function streamChatMessage(
       extractedTexts: fallback.extractedTexts,
     });
     if (fallback.reasoning) callbacks.onReasoningDelta?.(fallback.reasoning);
+    if (fallback.toolCalls?.length) {
+      callbacks.onToolCalls?.({
+        assistantContent: fallback.response,
+        toolCalls: fallback.toolCalls,
+        modelUsed: fallback.modelUsed,
+      });
+      return;
+    }
     callbacks.onContentDelta(fallback.response);
     callbacks.onDone?.({
       modelUsed: fallback.modelUsed,
@@ -310,6 +336,8 @@ export async function streamChatMessage(
       notice?: string;
       notices?: string[];
       extractedTexts?: Record<string, string>;
+      assistantContent?: string;
+      toolCalls?: ToolCallPayload[];
       modelUsed?: string;
       durationMs?: number;
       error?: string;
@@ -335,6 +363,15 @@ export async function streamChatMessage(
         break;
       case "content":
         if (evt.delta) callbacks.onContentDelta(evt.delta);
+        break;
+      case "tool_calls":
+        if (Array.isArray(evt.toolCalls) && evt.toolCalls.length > 0) {
+          callbacks.onToolCalls?.({
+            assistantContent: evt.assistantContent || "",
+            toolCalls: evt.toolCalls,
+            modelUsed: evt.modelUsed,
+          });
+        }
         break;
       case "done":
         callbacks.onDone?.({
