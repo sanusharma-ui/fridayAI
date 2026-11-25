@@ -27,6 +27,7 @@ app.get("/", (_req, res) => {
       "GET  /api/models",
       "POST /api/verify-key",
       "POST /api/chat",
+      "POST /api/chat/stream",
     ],
   });
 });
@@ -35,10 +36,8 @@ app.use("/api", healthRouter);
 app.use("/api", modelsRouter);
 app.use("/api", chatRouter);
 
-// Also support root /health for convenience
 app.use("/", healthRouter);
 
-// Global JSON syntax / payload error handler
 app.use(
   (
     err: Error & { status?: number; type?: string },
@@ -72,10 +71,10 @@ function getLocalLanIp(): string | null {
 
 app.listen(PORT, "0.0.0.0", () => {
   const lanIp = getLocalLanIp();
-  console.log(`\n✦ Friday Backend (Groq Supported) is running!`);
+  console.log(`\n✦ Friday Backend (Groq Streaming Ready) is running!`);
   console.log(`  Local:   http://localhost:${PORT}`);
   if (lanIp) {
     console.log(`  Network: http://${lanIp}:${PORT}  (Use this on physical mobile devices)`);
   }
-  console.log(`  Health:  http://localhost:${PORT}/api/health\n`);
+  console.log(`  Stream:  http://localhost:${PORT}/api/chat/stream\n`);
 });

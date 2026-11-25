@@ -20,18 +20,18 @@ import {
   KeyRound,
   Paperclip,
   RefreshCw,
+  Square,
   WifiOff,
   X,
 } from "lucide-react-native";
 import { ComposerAttachmentChip } from "./src/components/AttachmentChips";
-import { FridayMark } from "./src/components/FridayMark";
 import { ImagePreviewModal } from "./src/components/ImagePreviewModal";
 import { MessageBubble } from "./src/components/MessageBubble";
 import { SettingsModal } from "./src/components/SettingsModal";
 import { SidebarDrawer } from "./src/components/SidebarDrawer";
 import { TopBar } from "./src/components/TopBar";
 import { WelcomeView } from "./src/components/WelcomeView";
-import { checkBackendHealth, sendChatMessage } from "./src/services/api";
+import { checkBackendHealth, streamChatMessage } from "./src/services/api";
 import { pickImagesFromLibrary, pickPdfDocuments } from "./src/services/attachments";
 import {
   loadSavedChatState,
@@ -60,7 +60,10 @@ function makeId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function makeConversation(firstMessage: ChatMessage): Conversation {
+function makeConversation(
+  firstMessage: ChatMessage,
+  assistantPlaceholder: ChatMessage
+): Conversation {
   const now = Date.now();
   let clean = firstMessage.content.replace(/\s+/g, " ").trim();
   if (!clean && firstMessage.attachments?.length) {
@@ -73,7 +76,7 @@ function makeConversation(firstMessage: ChatMessage): Conversation {
     title: clean.length > 42 ? `${clean.slice(0, 42).trim()}…` : clean,
     createdAt: now,
     updatedAt: now,
-    messages: [firstMessage],
+    messages: [firstMessage, assistantPlaceholder],
   };
 }
 
@@ -102,10 +105,12 @@ function FridayWorkspace() {
 
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const sendingRef = useRef(false);
+  const streamAbortRef = useRef<AbortController | null>(null);
+  const userScrolledUpRef = useRef(false);
 
   const activeConversation =
     conversations.find((c) => c.id === activeId) || null;
-  const isPendingHere = pendingChatId !== null && pendingChatId === activeId;
+  const isStreamingAny = pendingChatId !== null;
   const hasUsableKey = Boolean(settings.groqApiKey.trim() || hasServerKey);
 
   const connectionState: ConnectionState = (() => {
@@ -115,7 +120,7 @@ function FridayWorkspace() {
     return "ready";
   })();
 
-  // Initial load from device storage
+  // Load saved state
   useEffect(() => {
     (async () => {
       const [chatState, savedSettings, cachedModels] = await Promise.all([
@@ -131,12 +136,12 @@ function FridayWorkspace() {
     })();
   }, []);
 
-  // Persist chats
+  // Persist chats when not mid-stream (avoids heavy AsyncStorage writes every 30ms!)
   useEffect(() => {
-    if (hydrated) {
+    if (hydrated && !isStreamingAny) {
       void saveConversations(conversations);
     }
-  }, [conversations, hydrated]);
+  }, [conversations, hydrated, isStreamingAny]);
 
   useEffect(() => {
     if (hydrated) {
@@ -144,7 +149,6 @@ function FridayWorkspace() {
     }
   }, [activeId, hydrated]);
 
-  // Poll backend health
   const refreshHealth = useCallback(async (customUrl?: string) => {
     const res = await checkBackendHealth(customUrl);
     setBackendOnline(res.online);
@@ -165,14 +169,15 @@ function FridayWorkspace() {
   const scrollToBottom = useCallback((animated = true) => {
     setTimeout(() => {
       scrollRef.current?.scrollToEnd({ animated });
-    }, 80);
+    }, 50);
   }, []);
 
   useEffect(() => {
-    if (activeConversation?.messages.length || isPendingHere) {
-      scrollToBottom(true);
+    userScrolledUpRef.current = false;
+    if (activeConversation?.messages.length) {
+      scrollToBottom(false);
     }
-  }, [activeId, activeConversation?.messages.length, isPendingHere, scrollToBottom]);
+  }, [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSaveSettings(
     next: AppSettings,
@@ -188,7 +193,12 @@ function FridayWorkspace() {
     await refreshHealth(next.backendUrl);
   }
 
+  function handleStopGenerating() {
+    streamAbortRef.current?.abort();
+  }
+
   function handleNewChat() {
+    if (isStreamingAny) handleStopGenerating();
     setActiveId(null);
     setDraft("");
     setAttachments([]);
@@ -247,48 +257,76 @@ function FridayWorkspace() {
     }
   }
 
-  async function handleSend(
-    overrideText?: string,
-    isRetry = false,
-    retryAttachments?: Attachment[]
-  ) {
-    const content = (overrideText ?? draft).trim();
-    const currentAttachments = retryAttachments ?? attachments;
+  async function handleSend(options?: {
+    overrideText?: string;
+    mode?: "normal" | "retry" | "regenerate";
+    explicitAttachments?: Attachment[];
+  }) {
+    const mode = options?.mode || "normal";
+    const content = (options?.overrideText ?? draft).trim();
+    const currentAttachments = options?.explicitAttachments ?? attachments;
 
     if ((!content && currentAttachments.length === 0) || sendingRef.current) {
       return;
     }
 
     if (!hasUsableKey) {
-      setError("Groq API key setup nahi hai. Settings me jaakar apni Groq API key add karein.");
+      setError(
+        "Groq API key setup nahi hai. Settings me jaakar apni Groq API key add karein."
+      );
       setSettingsOpen(true);
       return;
     }
 
     sendingRef.current = true;
+    userScrolledUpRef.current = false;
     setError(null);
     setShowAttachMenu(false);
 
     const priorMessages = activeConversation?.messages || [];
-    const userMessageId = isRetry
-      ? priorMessages[priorMessages.length - 1]?.id || makeId()
-      : makeId();
+    let baseMessages = priorMessages;
 
-    const history = (isRetry ? priorMessages.slice(0, -1) : priorMessages)
+    if (mode === "regenerate" && priorMessages.length > 0) {
+      // Remove the trailing assistant message so we regenerate fresh
+      const last = priorMessages[priorMessages.length - 1];
+      baseMessages =
+        last.role === "assistant" ? priorMessages.slice(0, -1) : priorMessages;
+    }
+
+    const historyMessages =
+      mode === "retry" || mode === "regenerate"
+        ? baseMessages.slice(0, -1)
+        : baseMessages;
+
+    const history = historyMessages
+      .filter((m) => m.content.trim().length > 0)
       .slice(-12)
       .map((m) => ({ role: m.role, content: m.content.slice(0, 3000) }));
 
-    // Carry forward most recent attachment in this chat for follow-up questions
     const previousFiles =
-      [...priorMessages].reverse().find((m) => m.attachments?.length)
+      [...historyMessages].reverse().find((m) => m.attachments?.length)
         ?.attachments || [];
     const contextAttachments = currentAttachments.length
       ? currentAttachments
       : previousFiles;
 
+    const userMessageId =
+      mode === "retry" || mode === "regenerate"
+        ? baseMessages[baseMessages.length - 1]?.id || makeId()
+        : makeId();
+
+    const assistantMsgId = makeId();
+    const assistantPlaceholder: ChatMessage = {
+      id: assistantMsgId,
+      role: "assistant",
+      content: "",
+      createdAt: Date.now(),
+      isStreaming: true,
+    };
+
     let targetId = activeId;
 
-    if (!isRetry) {
+    if (mode === "normal") {
       const userMsg: ChatMessage = {
         id: userMessageId,
         role: "user",
@@ -302,12 +340,16 @@ function FridayWorkspace() {
         setConversations((prev) =>
           prev.map((c) =>
             c.id === activeConversation.id
-              ? { ...c, messages: [...c.messages, userMsg], updatedAt: Date.now() }
+              ? {
+                  ...c,
+                  messages: [...c.messages, userMsg, assistantPlaceholder],
+                  updatedAt: Date.now(),
+                }
               : c
           )
         );
       } else {
-        const created = makeConversation(userMsg);
+        const created = makeConversation(userMsg, assistantPlaceholder);
         targetId = created.id;
         setConversations((prev) => [created, ...prev]);
         setActiveId(created.id);
@@ -315,6 +357,19 @@ function FridayWorkspace() {
 
       setDraft("");
       setAttachments([]);
+    } else if (activeConversation) {
+      // Retry or Regenerate: append fresh streaming assistant placeholder
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === activeConversation.id
+            ? {
+                ...c,
+                messages: [...baseMessages, assistantPlaceholder],
+                updatedAt: Date.now(),
+              }
+            : c
+        )
+      );
     }
 
     if (!targetId) {
@@ -323,63 +378,214 @@ function FridayWorkspace() {
     }
 
     setPendingChatId(targetId);
+    scrollToBottom(true);
 
-    try {
-      const result = await sendChatMessage({
-        backendUrl: settings.backendUrl,
-        apiKey: settings.groqApiKey,
-        message: content,
-        history,
-        attachments: contextAttachments,
-        model: settings.selectedModel,
-        visionModel: settings.selectedVisionModel,
-      });
+    const abortController = new AbortController();
+    streamAbortRef.current = abortController;
 
-      if (result.extractedTexts && Object.keys(result.extractedTexts).length > 0) {
-        setConversations((prev) =>
-          prev.map((c) => {
-            if (c.id !== targetId) return c;
-            return {
-              ...c,
-              messages: c.messages.map((m) => {
-                if (m.id !== userMessageId || !m.attachments) return m;
-                return {
-                  ...m,
-                  attachments: m.attachments.map((a) => ({
-                    ...a,
-                    extractedText: result.extractedTexts?.[a.id] || a.extractedText,
-                  })),
-                };
-              }),
-            };
-          })
+    // Smooth adaptive streaming buffer so ultra-fast Groq bursts flow smoothly at ~35fps
+    let rawReceivedContent = "";
+    let displayedContent = "";
+    let rawReasoning = "";
+    let displayedReasoning = "";
+    let collectedNotices: string[] = [];
+    let finalModelUsed: string | undefined;
+    let finalDurationMs: number | undefined;
+    let networkFinished = false;
+
+    const patchAssistantMessage = (patch: Partial<ChatMessage>) => {
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id !== targetId) return c;
+          return {
+            ...c,
+            updatedAt: Date.now(),
+            messages: c.messages.map((m) =>
+              m.id === assistantMsgId ? { ...m, ...patch } : m
+            ),
+          };
+        })
+      );
+    };
+
+    let drainResolve: (() => void) | null = null;
+    const drainPromise = new Promise<void>((resolve) => {
+      drainResolve = resolve;
+    });
+
+    const tickInterval = setInterval(() => {
+      let changed = false;
+
+      if (displayedReasoning.length < rawReasoning.length) {
+        const rem = rawReasoning.length - displayedReasoning.length;
+        const step = Math.max(8, Math.ceil(rem * 0.35));
+        displayedReasoning = rawReasoning.slice(
+          0,
+          displayedReasoning.length + step
         );
+        changed = true;
       }
 
-      const replyContent = result.notices?.length
-        ? `${result.notices.map((n) => `> ${n}`).join("\n\n")}\n\n${result.response}`
-        : result.response;
+      if (displayedContent.length < rawReceivedContent.length) {
+        const rem = rawReceivedContent.length - displayedContent.length;
+        // Adaptive step: smooth word-by-word feel without falling behind long streams
+        const step = abortController.signal.aborted
+          ? rem
+          : Math.max(4, Math.ceil(rem * 0.26));
+        let nextEnd = Math.min(
+          rawReceivedContent.length,
+          displayedContent.length + step
+        );
+        // Snap gently to whitespace boundary if within 4 chars for cleaner word reveal
+        while (
+          nextEnd < rawReceivedContent.length &&
+          nextEnd - displayedContent.length < step + 4 &&
+          !/\s/.test(rawReceivedContent[nextEnd - 1])
+        ) {
+          nextEnd++;
+        }
+        displayedContent = rawReceivedContent.slice(0, nextEnd);
+        changed = true;
+      }
 
-      const aiMsg: ChatMessage = {
-        id: makeId(),
-        role: "assistant",
-        content: replyContent,
-        createdAt: Date.now(),
-        modelUsed: result.modelUsed,
-      };
+      if (changed) {
+        patchAssistantMessage({
+          content: displayedContent,
+          reasoning: displayedReasoning || undefined,
+          notices: collectedNotices.length ? [...collectedNotices] : undefined,
+        });
+        if (!userScrolledUpRef.current) {
+          scrollRef.current?.scrollToEnd({ animated: false });
+        }
+      }
 
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === targetId
-            ? { ...c, messages: [...c.messages, aiMsg], updatedAt: Date.now() }
-            : c
-        )
+      if (
+        networkFinished &&
+        displayedContent.length >= rawReceivedContent.length &&
+        displayedReasoning.length >= rawReasoning.length
+      ) {
+        clearInterval(tickInterval);
+        drainResolve?.();
+      }
+    }, 28);
+
+    try {
+      await streamChatMessage(
+        {
+          backendUrl: settings.backendUrl,
+          apiKey: settings.groqApiKey,
+          message: content,
+          history,
+          attachments: contextAttachments,
+          model: settings.selectedModel,
+          visionModel: settings.selectedVisionModel,
+        },
+        {
+          onMeta: (meta) => {
+            if (meta.notices?.length) {
+              collectedNotices = [...collectedNotices, ...meta.notices];
+              patchAssistantMessage({ notices: [...collectedNotices] });
+            }
+            if (
+              meta.extractedTexts &&
+              Object.keys(meta.extractedTexts).length > 0
+            ) {
+              setConversations((prev) =>
+                prev.map((c) => {
+                  if (c.id !== targetId) return c;
+                  return {
+                    ...c,
+                    messages: c.messages.map((m) => {
+                      if (m.id !== userMessageId || !m.attachments) return m;
+                      return {
+                        ...m,
+                        attachments: m.attachments.map((a) => ({
+                          ...a,
+                          extractedText:
+                            meta.extractedTexts?.[a.id] || a.extractedText,
+                        })),
+                      };
+                    }),
+                  };
+                })
+              );
+            }
+          },
+          onNotice: (notice) => {
+            collectedNotices = [...collectedNotices, notice];
+            patchAssistantMessage({ notices: [...collectedNotices] });
+          },
+          onReasoningDelta: (delta) => {
+            rawReasoning += delta;
+          },
+          onContentDelta: (delta) => {
+            rawReceivedContent += delta;
+          },
+          onDone: (info) => {
+            finalModelUsed = info.modelUsed;
+            finalDurationMs = info.durationMs;
+          },
+        },
+        abortController.signal
       );
+
+      networkFinished = true;
+      await drainPromise;
+
+      const wasStopped = abortController.signal.aborted;
+
+      if (!rawReceivedContent.trim() && wasStopped) {
+        // User stopped before any content arrived — remove empty placeholder
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === targetId
+              ? {
+                  ...c,
+                  messages: c.messages.filter((m) => m.id !== assistantMsgId),
+                }
+              : c
+          )
+        );
+      } else {
+        patchAssistantMessage({
+          content: rawReceivedContent,
+          reasoning: rawReasoning || undefined,
+          notices: collectedNotices.length ? [...collectedNotices] : undefined,
+          modelUsed: finalModelUsed || settings.selectedModel,
+          durationMs: finalDurationMs,
+          isStreaming: false,
+          stopped: wasStopped,
+        });
+      }
+
       setBackendOnline(true);
     } catch (err) {
+      clearInterval(tickInterval);
       const msg = err instanceof Error ? err.message : "Something went wrong.";
       setError(msg);
+
+      // Remove empty assistant placeholder if request failed before streaming content
+      if (!rawReceivedContent.trim()) {
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === targetId
+              ? {
+                  ...c,
+                  messages: c.messages.filter((m) => m.id !== assistantMsgId),
+                }
+              : c
+          )
+        );
+      } else {
+        patchAssistantMessage({
+          content: rawReceivedContent,
+          isStreaming: false,
+          stopped: true,
+        });
+      }
     } finally {
+      clearInterval(tickInterval);
+      streamAbortRef.current = null;
       sendingRef.current = false;
       setPendingChatId(null);
     }
@@ -389,6 +595,11 @@ function FridayWorkspace() {
     .slice()
     .reverse()
     .find((m) => m.role === "user");
+
+  const lastAssistantMsgId = activeConversation?.messages
+    .slice()
+    .reverse()
+    .find((m) => m.role === "assistant")?.id;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
@@ -407,7 +618,6 @@ function FridayWorkspace() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={Platform.OS === "ios" ? 4 : 0}
       >
-        {/* Main Message / Welcome Scroll Area */}
         <View style={styles.flex}>
           <ScrollView
             ref={scrollRef}
@@ -422,6 +632,7 @@ function FridayWorkspace() {
                 e.nativeEvent;
               const distanceFromBottom =
                 contentSize.height - contentOffset.y - layoutMeasurement.height;
+              userScrolledUpRef.current = distanceFromBottom > 150;
               setShowScrollBottom(distanceFromBottom > 240);
             }}
             scrollEventThrottle={32}
@@ -429,8 +640,10 @@ function FridayWorkspace() {
             {!activeConversation?.messages.length ? (
               <WelcomeView
                 hasApiKey={hasUsableKey}
-                disabled={pendingChatId !== null}
-                onSelectPrompt={(prompt) => void handleSend(prompt)}
+                disabled={isStreamingAny}
+                onSelectPrompt={(prompt) =>
+                  void handleSend({ overrideText: prompt })
+                }
                 onOpenSettings={() => setSettingsOpen(true)}
               />
             ) : (
@@ -445,31 +658,32 @@ function FridayWorkspace() {
                   <MessageBubble
                     key={msg.id}
                     message={msg}
+                    isLatestAssistant={msg.id === lastAssistantMsgId}
                     onOpenImage={(att) => setPreviewImage(att)}
+                    onRegenerate={
+                      lastUserMsg && !isStreamingAny
+                        ? () =>
+                            void handleSend({
+                              overrideText:
+                                lastUserMsg.content ||
+                                "Analyze attached files",
+                              mode: "regenerate",
+                              explicitAttachments: lastUserMsg.attachments,
+                            })
+                        : undefined
+                    }
                   />
                 ))}
-
-                {isPendingHere && (
-                  <View style={styles.thinkingRow}>
-                    <View style={styles.thinkingAvatar}>
-                      <FridayMark size={17} color={colors.accent} />
-                    </View>
-                    <View style={styles.thinkingBody}>
-                      <Text style={styles.thinkingName}>Friday</Text>
-                      <View style={styles.thinkingBadge}>
-                        <ActivityIndicator size="small" color={colors.accent} />
-                        <Text style={styles.thinkingText}>Thinking via Groq…</Text>
-                      </View>
-                    </View>
-                  </View>
-                )}
               </View>
             )}
           </ScrollView>
 
           {showScrollBottom && activeConversation && (
             <Pressable
-              onPress={() => scrollToBottom(true)}
+              onPress={() => {
+                userScrolledUpRef.current = false;
+                scrollToBottom(true);
+              }}
               style={styles.scrollBottomBtn}
               accessibilityLabel="Scroll to bottom"
             >
@@ -495,19 +709,22 @@ function FridayWorkspace() {
                     style={styles.errorActionBtn}
                   >
                     <KeyRound size={12} color={colors.accent} />
-                    <Text style={[styles.errorActionLabel, { color: colors.accent }]}>
+                    <Text
+                      style={[styles.errorActionLabel, { color: colors.accent }]}
+                    >
                       Settings
                     </Text>
                   </Pressable>
                 )}
-                {lastUserMsg && (
+                {lastUserMsg && !isStreamingAny && (
                   <Pressable
                     onPress={() =>
-                      void handleSend(
-                        lastUserMsg.content || "Analyze attached files",
-                        true,
-                        lastUserMsg.attachments
-                      )
+                      void handleSend({
+                        overrideText:
+                          lastUserMsg.content || "Analyze attached files",
+                        mode: "retry",
+                        explicitAttachments: lastUserMsg.attachments,
+                      })
                     }
                     style={styles.errorActionBtn}
                   >
@@ -550,7 +767,7 @@ function FridayWorkspace() {
                     onRemove={(id) =>
                       setAttachments((prev) => prev.filter((a) => a.id !== id))
                     }
-                    disabled={pendingChatId !== null}
+                    disabled={isStreamingAny}
                   />
                 ))}
               </ScrollView>
@@ -566,7 +783,7 @@ function FridayWorkspace() {
             <View style={styles.inputRow}>
               <Pressable
                 onPress={() => setShowAttachMenu((v) => !v)}
-                disabled={pendingChatId !== null || pickingFiles}
+                disabled={isStreamingAny || pickingFiles}
                 style={({ pressed }) => [
                   styles.attachBtn,
                   showAttachMenu && styles.attachBtnActive,
@@ -591,33 +808,47 @@ function FridayWorkspace() {
                 placeholderTextColor={colors.subtle}
                 multiline
                 maxLength={4000}
-                editable={pendingChatId === null}
+                editable={!isStreamingAny}
                 style={styles.textInput}
               />
 
-              <Pressable
-                onPress={() => void handleSend()}
-                disabled={
-                  (!draft.trim() && attachments.length === 0) ||
-                  pendingChatId !== null ||
-                  pickingFiles
-                }
-                style={({ pressed }) => [
-                  styles.sendBtn,
-                  ((!draft.trim() && attachments.length === 0) ||
-                    pendingChatId !== null ||
-                    pickingFiles) &&
-                    styles.sendBtnDisabled,
-                  pressed && styles.pressed,
-                ]}
-                accessibilityLabel="Send message"
-              >
-                {pendingChatId !== null ? (
-                  <ActivityIndicator size="small" color={colors.ctaText} />
-                ) : (
-                  <ArrowUp size={18} color={colors.ctaText} strokeWidth={2.5} />
-                )}
-              </Pressable>
+              {isStreamingAny ? (
+                <Pressable
+                  onPress={handleStopGenerating}
+                  style={({ pressed }) => [
+                    styles.stopBtn,
+                    pressed && styles.pressed,
+                  ]}
+                  accessibilityLabel="Stop generating"
+                >
+                  <Square
+                    size={14}
+                    color={colors.danger}
+                    fill={colors.danger}
+                  />
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPress={() => void handleSend()}
+                  disabled={
+                    (!draft.trim() && attachments.length === 0) || pickingFiles
+                  }
+                  style={({ pressed }) => [
+                    styles.sendBtn,
+                    ((!draft.trim() && attachments.length === 0) ||
+                      pickingFiles) &&
+                      styles.sendBtnDisabled,
+                    pressed && styles.pressed,
+                  ]}
+                  accessibilityLabel="Send message"
+                >
+                  <ArrowUp
+                    size={18}
+                    color={colors.ctaText}
+                    strokeWidth={2.5}
+                  />
+                </Pressable>
+              )}
             </View>
 
             <View style={styles.composerFooter}>
@@ -628,16 +859,22 @@ function FridayWorkspace() {
                 <View
                   style={[
                     styles.modelDot,
-                    { backgroundColor: hasUsableKey ? colors.sage : colors.warning },
+                    {
+                      backgroundColor: hasUsableKey
+                        ? colors.sage
+                        : colors.warning,
+                    },
                   ]}
                 />
                 <Text style={styles.modelPillText} numberOfLines={1}>
-                  {settings.selectedModel} · Groq
+                  {settings.selectedModel} · Groq Stream
                 </Text>
               </Pressable>
-              {draft.length > 3500 && (
+              {isStreamingAny ? (
+                <Text style={styles.streamingHint}>Tap ■ to stop</Text>
+              ) : draft.length > 3500 ? (
                 <Text style={styles.charCounter}>{draft.length}/4000</Text>
-              )}
+              ) : null}
             </View>
           </View>
         </View>
@@ -717,39 +954,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1.6,
     color: colors.subtle,
     fontWeight: "600",
-  },
-  thinkingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 11,
-    marginBottom: 20,
-  },
-  thinkingAvatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
-    backgroundColor: colors.accentSoft,
-    borderWidth: 1,
-    borderColor: colors.accentBorder,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  thinkingBody: {
-    gap: 4,
-  },
-  thinkingName: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: colors.text,
-  },
-  thinkingBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  thinkingText: {
-    fontSize: 12.5,
-    color: colors.muted,
   },
   scrollBottomBtn: {
     position: "absolute",
@@ -902,6 +1106,16 @@ const styles = StyleSheet.create({
   sendBtnDisabled: {
     opacity: 0.38,
   },
+  stopBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    backgroundColor: colors.dangerBg,
+    borderWidth: 1,
+    borderColor: colors.dangerBorder,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   composerFooter: {
     flexDirection: "row",
     alignItems: "center",
@@ -913,7 +1127,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    maxWidth: "82%",
+    maxWidth: "75%",
   },
   modelDot: {
     width: 6,
@@ -923,6 +1137,11 @@ const styles = StyleSheet.create({
   modelPillText: {
     fontSize: 11,
     color: colors.muted,
+  },
+  streamingHint: {
+    fontSize: 10.5,
+    color: colors.danger,
+    fontWeight: "500",
   },
   charCounter: {
     fontSize: 10.5,

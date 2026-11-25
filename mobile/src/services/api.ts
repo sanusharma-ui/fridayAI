@@ -1,9 +1,9 @@
 import Constants from "expo-constants";
+import { fetch as expoFetch } from "expo/fetch";
 import { Platform } from "react-native";
 import type { Attachment, GroqModelOption } from "../types";
 
 export function getAutoDetectedBackendUrl(): string {
-  // Automatically extract the dev machine's LAN IP when running in Expo Go / Metro
   const hostUri =
     Constants.expoConfig?.hostUri ||
     (Constants as unknown as { manifest2?: { extra?: { expoClient?: { hostUri?: string } } } })
@@ -139,6 +139,7 @@ export interface SendChatParams {
 
 export interface SendChatResult {
   response: string;
+  reasoning?: string;
   modelUsed?: string;
   notices?: string[];
   extractedTexts?: Record<string, string>;
@@ -188,8 +189,8 @@ export async function sendChatMessage(params: SendChatParams): Promise<SendChatR
 
   let data: {
     response?: string;
+    reasoning?: string;
     error?: string;
-    code?: string;
     modelUsed?: string;
     notices?: string[];
     extractedTexts?: Record<string, string>;
@@ -207,8 +208,176 @@ export async function sendChatMessage(params: SendChatParams): Promise<SendChatR
 
   return {
     response: data.response,
+    reasoning: data.reasoning,
     modelUsed: data.modelUsed,
     notices: data.notices,
     extractedTexts: data.extractedTexts,
   };
+}
+
+export interface StreamChatCallbacks {
+  onMeta?: (meta: {
+    notices?: string[];
+    extractedTexts?: Record<string, string>;
+  }) => void;
+  onNotice?: (notice: string) => void;
+  onReasoningDelta?: (delta: string) => void;
+  onContentDelta: (delta: string) => void;
+  onDone?: (info: { modelUsed?: string; durationMs?: number }) => void;
+}
+
+export async function streamChatMessage(
+  params: SendChatParams,
+  callbacks: StreamChatCallbacks,
+  signal?: AbortSignal
+): Promise<void> {
+  const baseUrl = resolveBackendBaseUrl(params.backendUrl);
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "text/event-stream",
+  };
+  if (params.apiKey.trim()) {
+    headers["X-Groq-Api-Key"] = params.apiKey.trim();
+  }
+
+  const bodyPayload = JSON.stringify({
+    message: params.message,
+    history: params.history,
+    attachments: params.attachments.map((att) => ({
+      id: att.id,
+      name: att.name,
+      type: att.type,
+      size: att.size,
+      dataUrl: att.dataUrl,
+      extractedText: att.extractedText,
+    })),
+    model: params.model,
+    visionModel: params.visionModel,
+  });
+
+  let res: Awaited<ReturnType<typeof expoFetch>>;
+  try {
+    res = await expoFetch(`${baseUrl}/api/chat/stream`, {
+      method: "POST",
+      headers,
+      body: bodyPayload,
+      signal,
+    });
+  } catch (err) {
+    if (signal?.aborted) return;
+    throw new Error(
+      `Cannot connect to Friday backend (${baseUrl}). Ensure backend is running ("npm run dev") or check Settings.`
+    );
+  }
+
+  // Fallback if user hasn't restarted an older backend that didn't have /api/chat/stream yet
+  if (res.status === 404) {
+    const started = Date.now();
+    const fallback = await sendChatMessage(params);
+    callbacks.onMeta?.({
+      notices: fallback.notices,
+      extractedTexts: fallback.extractedTexts,
+    });
+    if (fallback.reasoning) callbacks.onReasoningDelta?.(fallback.reasoning);
+    callbacks.onContentDelta(fallback.response);
+    callbacks.onDone?.({
+      modelUsed: fallback.modelUsed,
+      durationMs: Date.now() - started,
+    });
+    return;
+  }
+
+  if (!res.ok) {
+    let errMsg = `Request failed (HTTP ${res.status}).`;
+    try {
+      const errData = await res.json();
+      if (errData?.error) errMsg = errData.error;
+    } catch {
+      // Ignore JSON parse error
+    }
+    throw new Error(errMsg);
+  }
+
+  const processSseLine = (rawLine: string) => {
+    const line = rawLine.trim();
+    if (!line || !line.startsWith("data:")) return;
+    const rawJson = line.slice(5).trim();
+    if (!rawJson) return;
+
+    let evt: {
+      type?: string;
+      delta?: string;
+      notice?: string;
+      notices?: string[];
+      extractedTexts?: Record<string, string>;
+      modelUsed?: string;
+      durationMs?: number;
+      error?: string;
+    };
+    try {
+      evt = JSON.parse(rawJson);
+    } catch {
+      return;
+    }
+
+    switch (evt.type) {
+      case "meta":
+        callbacks.onMeta?.({
+          notices: evt.notices,
+          extractedTexts: evt.extractedTexts,
+        });
+        break;
+      case "notice":
+        if (evt.notice) callbacks.onNotice?.(evt.notice);
+        break;
+      case "reasoning":
+        if (evt.delta) callbacks.onReasoningDelta?.(evt.delta);
+        break;
+      case "content":
+        if (evt.delta) callbacks.onContentDelta(evt.delta);
+        break;
+      case "done":
+        callbacks.onDone?.({
+          modelUsed: evt.modelUsed,
+          durationMs: evt.durationMs,
+        });
+        break;
+      case "error":
+        throw new Error(evt.error || "Streaming error occurred.");
+    }
+  };
+
+  if (!res.body || typeof res.body.getReader !== "function") {
+    const fullText = await res.text();
+    for (const line of fullText.split(/\r?\n/)) {
+      processSseLine(line);
+    }
+    return;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        processSseLine(line);
+      }
+    }
+    if (buffer.trim()) {
+      processSseLine(buffer);
+    }
+  } catch (err) {
+    if (signal?.aborted) return;
+    throw err;
+  } finally {
+    reader.releaseLock();
+  }
 }

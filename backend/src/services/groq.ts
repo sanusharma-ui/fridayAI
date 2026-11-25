@@ -143,7 +143,6 @@ export async function fetchGroqModels(apiKey: string): Promise<GroqModelOption[]
       };
     });
 
-  // Sort recommended models first, then alphabetically
   mapped.sort((a, b) => {
     if (Boolean(a.recommended) !== Boolean(b.recommended)) {
       return a.recommended ? -1 : 1;
@@ -168,107 +167,15 @@ function stripReasoningBlocks(raw: string): { cleanText: string; reasoning?: str
   };
 }
 
-export interface GenerateGroqReplyParams {
-  apiKey: string;
+function buildMessagesPayload(params: {
   userMessage: string;
   history: ConversationTurn[];
   imageDataUrls: string[];
   contextSections: string[];
   requestedModel?: string;
   requestedVisionModel?: string;
-}
-
-export interface GenerateGroqReplyResult {
-  response: string;
-  reasoning?: string;
-  modelUsed: string;
-  notices: string[];
-}
-
-async function callGroqChatCompletions(
-  apiKey: string,
-  model: string,
-  messages: unknown[]
-): Promise<{ content: string; modelUsed: string }> {
-  let res: Response;
-  try {
-    res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: 0.6,
-        max_completion_tokens: 2048,
-      }),
-      signal: AbortSignal.timeout(90_000),
-    });
-  } catch (err) {
-    const isTimeout =
-      err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
-    throw new GroqApiError(
-      isTimeout
-        ? "Groq request timed out. Try a shorter message or smaller attachment."
-        : "Cannot reach Groq API. Check internet connection.",
-      502,
-      "UPSTREAM_TIMEOUT"
-    );
-  }
-
-  let data: unknown = null;
-  try {
-    data = await res.json();
-  } catch {
-    data = null;
-  }
-
-  if (!res.ok) {
-    const upstreamMsg =
-      (data as { error?: { message?: string; code?: string } } | null)?.error?.message ||
-      `Groq API returned HTTP ${res.status}.`;
-    const upstreamCode =
-      (data as { error?: { code?: string } } | null)?.error?.code || "GROQ_ERROR";
-
-    if (res.status === 401 || res.status === 403) {
-      throw new GroqApiError(
-        "Invalid Groq API key. Please update your key in Settings.",
-        401,
-        "INVALID_API_KEY"
-      );
-    }
-    if (res.status === 429) {
-      throw new GroqApiError(
-        "Groq rate limit reached. Wait a few seconds or switch models in Settings.",
-        429,
-        "RATE_LIMITED"
-      );
-    }
-
-    throw new GroqApiError(upstreamMsg, res.status >= 400 && res.status < 500 ? 400 : 502, upstreamCode);
-  }
-
-  const content = (
-    data as { choices?: Array<{ message?: { content?: string } }>; model?: string } | null
-  )?.choices?.[0]?.message?.content;
-
-  if (typeof content !== "string" || !content.trim()) {
-    throw new GroqApiError("Groq returned an empty response.", 502, "EMPTY_RESPONSE");
-  }
-
-  const modelUsed =
-    (data as { model?: string } | null)?.model || model;
-
-  return { content, modelUsed };
-}
-
-export async function generateGroqReply(
-  params: GenerateGroqReplyParams
-): Promise<GenerateGroqReplyResult> {
+}): { chosenModel: string; hasImages: boolean; messages: unknown[] } {
   const {
-    apiKey,
     userMessage,
     history,
     imageDataUrls,
@@ -277,10 +184,8 @@ export async function generateGroqReply(
     requestedVisionModel,
   } = params;
 
-  const notices: string[] = [];
   const hasImages = imageDataUrls.length > 0;
-
-  let chosenModel = (requestedModel?.trim() || DEFAULT_TEXT_MODEL);
+  let chosenModel = requestedModel?.trim() || DEFAULT_TEXT_MODEL;
   if (hasImages && !isLikelyVisionModel(chosenModel)) {
     chosenModel = requestedVisionModel?.trim() || DEFAULT_VISION_MODEL;
   }
@@ -309,37 +214,425 @@ export async function generateGroqReply(
     messages.push({ role: "user", content: combinedText });
   }
 
+  return { chosenModel, hasImages, messages };
+}
+
+function isModelFallbackCandidateError(err: unknown): err is GroqApiError {
+  if (!(err instanceof GroqApiError) || err.status !== 400) return false;
+  const lower = err.message.toLowerCase();
+  return (
+    lower.includes("model") ||
+    lower.includes("decommissioned") ||
+    lower.includes("image") ||
+    lower.includes("vision")
+  );
+}
+
+async function parseFailedGroqResponse(res: Response): Promise<GroqApiError> {
+  let data: unknown = null;
   try {
-    const { content, modelUsed } = await callGroqChatCompletions(apiKey, chosenModel, messages);
-    const { cleanText, reasoning } = stripReasoningBlocks(content);
-    return { response: cleanText, reasoning, modelUsed, notices };
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+
+  const upstreamMsg =
+    (data as { error?: { message?: string; code?: string } } | null)?.error?.message ||
+    `Groq API returned HTTP ${res.status}.`;
+  const upstreamCode =
+    (data as { error?: { code?: string } } | null)?.error?.code || "GROQ_ERROR";
+
+  if (res.status === 401 || res.status === 403) {
+    return new GroqApiError(
+      "Invalid Groq API key. Please update your key in Settings.",
+      401,
+      "INVALID_API_KEY"
+    );
+  }
+  if (res.status === 429) {
+    return new GroqApiError(
+      "Groq rate limit reached. Wait a few seconds or switch models in Settings.",
+      429,
+      "RATE_LIMITED"
+    );
+  }
+
+  return new GroqApiError(
+    upstreamMsg,
+    res.status >= 400 && res.status < 500 ? 400 : 502,
+    upstreamCode
+  );
+}
+
+export interface GenerateGroqReplyParams {
+  apiKey: string;
+  userMessage: string;
+  history: ConversationTurn[];
+  imageDataUrls: string[];
+  contextSections: string[];
+  requestedModel?: string;
+  requestedVisionModel?: string;
+}
+
+export interface GenerateGroqReplyResult {
+  response: string;
+  reasoning?: string;
+  modelUsed: string;
+  notices: string[];
+}
+
+async function callGroqChatCompletions(
+  apiKey: string,
+  model: string,
+  messages: unknown[]
+): Promise<{ content: string; reasoning?: string; modelUsed: string }> {
+  let res: Response;
+  try {
+    res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: 0.6,
+        max_completion_tokens: 4096,
+      }),
+      signal: AbortSignal.timeout(90_000),
+    });
   } catch (err) {
-    // Automatic fallback if a selected model was deprecated or lacks vision support
-    if (
-      err instanceof GroqApiError &&
-      err.status === 400 &&
-      (err.message.toLowerCase().includes("model") ||
-        err.message.toLowerCase().includes("decommissioned") ||
-        err.message.toLowerCase().includes("image") ||
-        err.message.toLowerCase().includes("vision"))
-    ) {
-      const liveModels = await fetchGroqModels(apiKey);
+    const isTimeout =
+      err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+    throw new GroqApiError(
+      isTimeout
+        ? "Groq request timed out. Try a shorter message or smaller attachment."
+        : "Cannot reach Groq API. Check internet connection.",
+      502,
+      "UPSTREAM_TIMEOUT"
+    );
+  }
+
+  if (!res.ok) {
+    throw await parseFailedGroqResponse(res);
+  }
+
+  const data = (await res.json()) as {
+    choices?: Array<{
+      message?: { content?: string; reasoning?: string };
+    }>;
+    model?: string;
+  };
+
+  const msg = data?.choices?.[0]?.message;
+  const content = msg?.content || "";
+  if (!content.trim()) {
+    throw new GroqApiError("Groq returned an empty response.", 502, "EMPTY_RESPONSE");
+  }
+
+  return {
+    content,
+    reasoning: typeof msg?.reasoning === "string" ? msg.reasoning : undefined,
+    modelUsed: data?.model || model,
+  };
+}
+
+export async function generateGroqReply(
+  params: GenerateGroqReplyParams
+): Promise<GenerateGroqReplyResult> {
+  const notices: string[] = [];
+  const { chosenModel, hasImages, messages } = buildMessagesPayload(params);
+
+  try {
+    const { content, reasoning: apiReasoning, modelUsed } = await callGroqChatCompletions(
+      params.apiKey,
+      chosenModel,
+      messages
+    );
+    const { cleanText, reasoning: tagReasoning } = stripReasoningBlocks(content);
+    return {
+      response: cleanText,
+      reasoning: apiReasoning || tagReasoning,
+      modelUsed,
+      notices,
+    };
+  } catch (err) {
+    if (isModelFallbackCandidateError(err)) {
+      const liveModels = await fetchGroqModels(params.apiKey);
       const fallbackCandidate = hasImages
         ? liveModels.find((m) => m.supportsVision && m.id !== chosenModel)?.id
         : liveModels.find((m) => m.id === DEFAULT_TEXT_MODEL && m.id !== chosenModel)?.id ||
           liveModels.find((m) => m.id !== chosenModel)?.id;
 
       if (fallbackCandidate) {
-        const { content, modelUsed } = await callGroqChatCompletions(
-          apiKey,
+        const { content, reasoning: apiReasoning, modelUsed } = await callGroqChatCompletions(
+          params.apiKey,
           fallbackCandidate,
           messages
         );
         notices.push(`Switched automatically to active Groq model: ${modelUsed}`);
-        const { cleanText, reasoning } = stripReasoningBlocks(content);
-        return { response: cleanText, reasoning, modelUsed, notices };
+        const { cleanText, reasoning: tagReasoning } = stripReasoningBlocks(content);
+        return {
+          response: cleanText,
+          reasoning: apiReasoning || tagReasoning,
+          modelUsed,
+          notices,
+        };
       }
     }
     throw err;
   }
+}
+
+/**
+ * State machine that separates inline `<think>...</think>` blocks from main content
+ * safely across arbitrary token boundaries during SSE streaming.
+ */
+class ThinkTagStreamFilter {
+  private inThink = false;
+  private carry = "";
+  private startedContent = false;
+  private onContent: (delta: string) => void;
+  private onReasoning: (delta: string) => void;
+
+  constructor(
+    onContent: (delta: string) => void,
+    onReasoning: (delta: string) => void
+  ) {
+    this.onContent = onContent;
+    this.onReasoning = onReasoning;
+  }
+
+  private emitContent(text: string) {
+    if (!text) return;
+    if (!this.startedContent) {
+      const trimmed = text.replace(/^\s+/, "");
+      if (!trimmed) return;
+      this.startedContent = true;
+      this.onContent(trimmed);
+      return;
+    }
+    this.onContent(text);
+  }
+
+  push(chunk: string) {
+    let buf = this.carry + chunk;
+    this.carry = "";
+
+    while (buf.length > 0) {
+      if (!this.inThink) {
+        const openIdx = buf.indexOf("<think>");
+        if (openIdx !== -1) {
+          this.emitContent(buf.slice(0, openIdx));
+          this.inThink = true;
+          buf = buf.slice(openIdx + 7);
+          continue;
+        }
+        // Hold back a potential partial `<think>` prefix at the very end
+        const partialIdx = this.findPartialSuffix(buf, "<think>");
+        if (partialIdx !== -1) {
+          this.emitContent(buf.slice(0, partialIdx));
+          this.carry = buf.slice(partialIdx);
+          return;
+        }
+        this.emitContent(buf);
+        return;
+      } else {
+        const closeIdx = buf.indexOf("</think>");
+        if (closeIdx !== -1) {
+          const thought = buf.slice(0, closeIdx);
+          if (thought) this.onReasoning(thought);
+          this.inThink = false;
+          buf = buf.slice(closeIdx + 8);
+          continue;
+        }
+        const partialIdx = this.findPartialSuffix(buf, "</think>");
+        if (partialIdx !== -1) {
+          const thought = buf.slice(0, partialIdx);
+          if (thought) this.onReasoning(thought);
+          this.carry = buf.slice(partialIdx);
+          return;
+        }
+        this.onReasoning(buf);
+        return;
+      }
+    }
+  }
+
+  flush() {
+    if (!this.carry) return;
+    if (this.inThink) {
+      this.onReasoning(this.carry);
+    } else {
+      this.emitContent(this.carry);
+    }
+    this.carry = "";
+  }
+
+  private findPartialSuffix(text: string, tag: string): number {
+    const maxLen = Math.min(text.length, tag.length - 1);
+    for (let len = maxLen; len >= 1; len--) {
+      if (tag.startsWith(text.slice(text.length - len))) {
+        return text.length - len;
+      }
+    }
+    return -1;
+  }
+}
+
+export interface StreamGroqCallbacks {
+  onNotice?: (notice: string) => void;
+  onContentDelta: (delta: string) => void;
+  onReasoningDelta: (delta: string) => void;
+}
+
+async function openGroqStreamResponse(
+  apiKey: string,
+  model: string,
+  messages: unknown[],
+  signal?: AbortSignal
+): Promise<Response> {
+  const timeoutSignal = AbortSignal.timeout(95_000);
+  const combinedSignal = signal
+    ? AbortSignal.any([signal, timeoutSignal])
+    : timeoutSignal;
+
+  let res: Response;
+  try {
+    res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: 0.6,
+        max_completion_tokens: 4096,
+        stream: true,
+      }),
+      signal: combinedSignal,
+    });
+  } catch (err) {
+    if (signal?.aborted) {
+      throw new GroqApiError("Generation stopped by user.", 499, "CLIENT_ABORTED");
+    }
+    const isTimeout =
+      err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+    throw new GroqApiError(
+      isTimeout
+        ? "Groq stream timed out. Try a shorter message or smaller attachment."
+        : "Cannot reach Groq API. Check internet connection.",
+      502,
+      "UPSTREAM_TIMEOUT"
+    );
+  }
+
+  if (!res.ok) {
+    throw await parseFailedGroqResponse(res);
+  }
+
+  if (!res.body) {
+    throw new GroqApiError("Groq stream body unavailable.", 502, "EMPTY_STREAM");
+  }
+
+  return res;
+}
+
+export async function streamGroqReply(
+  params: GenerateGroqReplyParams,
+  callbacks: StreamGroqCallbacks,
+  signal?: AbortSignal
+): Promise<{ modelUsed: string }> {
+  const { chosenModel, hasImages, messages } = buildMessagesPayload(params);
+
+  let res: Response;
+  let activeModel = chosenModel;
+
+  try {
+    res = await openGroqStreamResponse(params.apiKey, activeModel, messages, signal);
+  } catch (err) {
+    if (isModelFallbackCandidateError(err)) {
+      const liveModels = await fetchGroqModels(params.apiKey);
+      const fallbackCandidate = hasImages
+        ? liveModels.find((m) => m.supportsVision && m.id !== activeModel)?.id
+        : liveModels.find((m) => m.id === DEFAULT_TEXT_MODEL && m.id !== activeModel)?.id ||
+          liveModels.find((m) => m.id !== activeModel)?.id;
+
+      if (fallbackCandidate) {
+        activeModel = fallbackCandidate;
+        res = await openGroqStreamResponse(params.apiKey, activeModel, messages, signal);
+        callbacks.onNotice?.(`Switched automatically to active Groq model: ${activeModel}`);
+      } else {
+        throw err;
+      }
+    } else {
+      throw err;
+    }
+  }
+
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder("utf-8");
+  const filter = new ThinkTagStreamFilter(
+    callbacks.onContentDelta,
+    callbacks.onReasoningDelta
+  );
+
+  let sseBuffer = "";
+  let modelUsed = activeModel;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      sseBuffer += decoder.decode(value, { stream: true });
+      const lines = sseBuffer.split(/\r?\n/);
+      sseBuffer = lines.pop() || "";
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line || !line.startsWith("data:")) continue;
+
+        const dataPayload = line.slice(5).trim();
+        if (dataPayload === "[DONE]") {
+          filter.flush();
+          return { modelUsed };
+        }
+
+        try {
+          const parsed = JSON.parse(dataPayload) as {
+            model?: string;
+            choices?: Array<{
+              delta?: {
+                content?: string | null;
+                reasoning?: string | null;
+              };
+            }>;
+          };
+
+          if (parsed.model) {
+            modelUsed = parsed.model;
+          }
+
+          const delta = parsed.choices?.[0]?.delta;
+          if (delta?.reasoning) {
+            callbacks.onReasoningDelta(delta.reasoning);
+          }
+          if (delta?.content) {
+            filter.push(delta.content);
+          }
+        } catch {
+          // Ignore malformed partial comment/keepalive lines
+        }
+      }
+    }
+  } finally {
+    filter.flush();
+    reader.releaseLock();
+  }
+
+  return { modelUsed };
 }

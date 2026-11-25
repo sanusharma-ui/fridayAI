@@ -17,6 +17,11 @@ export interface ChatMessage {
   createdAt: number;
   attachments?: Attachment[];
   modelUsed?: string;
+  reasoning?: string;
+  notices?: string[];
+  durationMs?: number;
+  isStreaming?: boolean;
+  stopped?: boolean;
 }
 
 export interface Conversation {

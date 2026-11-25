@@ -23,9 +23,9 @@ const STARTERS = [
   {
     icon: Code2,
     iconColor: colors.sage,
-    title: "Write better code",
-    subtitle: "Clean architecture & examples",
-    prompt: "Help me design a clean Node.js REST API for a task manager.",
+    title: "Code + Architecture Table",
+    subtitle: "Compare REST vs GraphQL + code",
+    prompt: "Compare REST vs GraphQL vs tRPC in a clean Markdown table, then show a TypeScript Express route example with a tip callout.",
   },
   {
     icon: FileText,

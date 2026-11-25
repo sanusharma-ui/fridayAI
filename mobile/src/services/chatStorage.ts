@@ -15,7 +15,14 @@ export async function loadSavedChatState(): Promise<{
     ]);
 
     const parsed = rawConversations ? JSON.parse(rawConversations) : [];
-    const conversations: Conversation[] = Array.isArray(parsed) ? parsed : [];
+    const conversations: Conversation[] = Array.isArray(parsed)
+      ? parsed.map((c: Conversation) => ({
+          ...c,
+          messages: Array.isArray(c.messages)
+            ? c.messages.map((m) => ({ ...m, isStreaming: false }))
+            : [],
+        }))
+      : [];
     const validActive = conversations.some((c) => c.id === activeId) ? activeId : null;
 
     return { conversations, activeId: validActive };
@@ -25,12 +32,16 @@ export async function loadSavedChatState(): Promise<{
 }
 
 export async function saveConversations(conversations: Conversation[]): Promise<void> {
+  const sanitized = conversations.map((c) => ({
+    ...c,
+    messages: c.messages.map(({ isStreaming: _s, ...rest }) => rest),
+  }));
+
   try {
-    await AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(conversations));
+    await AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(sanitized));
   } catch {
-    // Prune heavy base64 strings if storage limit is hit
     try {
-      const pruned = conversations.map((c) => ({
+      const pruned = sanitized.map((c) => ({
         ...c,
         messages: c.messages.map((m) => ({
           ...m,

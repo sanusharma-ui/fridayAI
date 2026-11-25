@@ -1,127 +1,249 @@
-import React, { useState } from "react";
+import React, { useMemo } from "react";
+import { Linking, Platform, StyleSheet, Text, View } from "react-native";
 import {
-  Linking,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import * as Clipboard from "expo-clipboard";
-import { Check, Copy } from "lucide-react-native";
+  AlertTriangle,
+  CheckSquare,
+  Info,
+  Lightbulb,
+  ShieldAlert,
+  Sparkles,
+  Square,
+} from "lucide-react-native";
 import { colors } from "../theme/colors";
+import { CodeBlock } from "./CodeBlock";
+import {
+  isTableSeparatorLine,
+  MarkdownTable,
+  parseTableLines,
+  type ParsedTableData,
+} from "./MarkdownTable";
 
-interface Block {
-  type: "code" | "paragraph" | "heading" | "quote" | "list";
-  content: string;
-  lang?: string;
-  level?: number;
-  items?: { marker: string; text: string }[];
+type CalloutKind = "NOTE" | "TIP" | "IMPORTANT" | "WARNING" | "CAUTION";
+
+interface ListItemNode {
+  indent: number;
+  marker: string;
+  checked?: boolean;
+  text: string;
 }
 
-function parseMarkdownBlocks(markdown: string): Block[] {
-  const blocks: Block[] = [];
-  const fenceRegex = /```([a-zA-Z0-9_-]*)\n?([\s\S]*?)```/g;
-  let lastIdx = 0;
-  let match: RegExpExecArray | null;
+type RichBlock =
+  | {
+      type: "code";
+      lang: string;
+      content: string;
+      unclosed?: boolean;
+    }
+  | {
+      type: "table";
+      table: ParsedTableData;
+    }
+  | {
+      type: "heading";
+      level: number;
+      content: string;
+    }
+  | {
+      type: "hr";
+    }
+  | {
+      type: "callout";
+      kind: CalloutKind;
+      content: string;
+    }
+  | {
+      type: "quote";
+      content: string;
+    }
+  | {
+      type: "list";
+      items: ListItemNode[];
+    }
+  | {
+      type: "paragraph";
+      content: string;
+    };
 
-  const pushTextSection = (section: string) => {
-    const lines = section.split(/\r?\n/);
-    let i = 0;
+const LIST_LINE_REGEX = /^(\s*)([-*•]|\d+\.)\s+(?:\[([ xX])\]\s+)?(.+)$/;
+const CALLOUT_HEADER_REGEX = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*)$/i;
 
-    while (i < lines.length) {
-      const line = lines[i];
-      const trimmed = line.trim();
+function parseRichMarkdown(markdown: string): RichBlock[] {
+  const blocks: RichBlock[] = [];
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  let i = 0;
 
-      if (!trimmed) {
-        i++;
-        continue;
-      }
+  while (i < lines.length) {
+    const rawLine = lines[i];
+    const trimmed = rawLine.trim();
 
-      // Heading
-      const headingMatch = /^(#{1,4})\s+(.+)$/.exec(trimmed);
-      if (headingMatch) {
-        blocks.push({
-          type: "heading",
-          level: headingMatch[1].length,
-          content: headingMatch[2],
-        });
-        i++;
-        continue;
-      }
+    if (!trimmed) {
+      i++;
+      continue;
+    }
 
-      // Blockquote
-      if (trimmed.startsWith(">")) {
-        const quoteLines: string[] = [];
-        while (i < lines.length && lines[i].trim().startsWith(">")) {
-          quoteLines.push(lines[i].trim().replace(/^>\s?/, ""));
+    // 1. Fenced code block (supports both closed and streaming/unclosed blocks!)
+    const fenceMatch = /^```([a-zA-Z0-9_+#.-]*)\s*$/.exec(trimmed);
+    if (fenceMatch) {
+      const lang = fenceMatch[1] || "";
+      const codeLines: string[] = [];
+      i++;
+      let closed = false;
+      while (i < lines.length) {
+        if (/^```\s*$/.test(lines[i].trim())) {
+          closed = true;
           i++;
+          break;
         }
+        codeLines.push(lines[i]);
+        i++;
+      }
+      blocks.push({
+        type: "code",
+        lang,
+        content: codeLines.join("\n"),
+        unclosed: !closed,
+      });
+      continue;
+    }
+
+    // 2. Horizontal rule
+    if (/^(?:---+|\*\*\*+|___+)$/.test(trimmed)) {
+      blocks.push({ type: "hr" });
+      i++;
+      continue;
+    }
+
+    // 3. Heading
+    const headingMatch = /^(#{1,4})\s+(.+)$/.exec(trimmed);
+    if (headingMatch) {
+      blocks.push({
+        type: "heading",
+        level: headingMatch[1].length,
+        content: headingMatch[2].trim(),
+      });
+      i++;
+      continue;
+    }
+
+    // 4. GFM Table (header row + separator row + 0..N data rows)
+    if (
+      trimmed.includes("|") &&
+      i + 1 < lines.length &&
+      isTableSeparatorLine(lines[i + 1])
+    ) {
+      const tableLines: string[] = [lines[i], lines[i + 1]];
+      i += 2;
+      while (i < lines.length && lines[i].trim().includes("|")) {
+        tableLines.push(lines[i]);
+        i++;
+      }
+      const parsed = parseTableLines(tableLines);
+      if (parsed) {
+        blocks.push({ type: "table", table: parsed });
+        continue;
+      }
+    }
+
+    // 5. Blockquote or GitHub Callout (> [!TIP], > [!NOTE], etc.)
+    if (trimmed.startsWith(">")) {
+      const quoteLines: string[] = [];
+      while (i < lines.length && lines[i].trim().startsWith(">")) {
+        quoteLines.push(lines[i].trim().replace(/^>\s?/, ""));
+        i++;
+      }
+
+      const first = quoteLines[0] || "";
+      const calloutMatch = CALLOUT_HEADER_REGEX.exec(first);
+      if (calloutMatch) {
+        const kind = calloutMatch[1].toUpperCase() as CalloutKind;
+        const inlineRest = calloutMatch[2]?.trim();
+        const bodyLines = inlineRest
+          ? [inlineRest, ...quoteLines.slice(1)]
+          : quoteLines.slice(1);
+        blocks.push({
+          type: "callout",
+          kind,
+          content: bodyLines.join("\n").trim(),
+        });
+      } else {
         blocks.push({
           type: "quote",
-          content: quoteLines.join("\n"),
+          content: quoteLines.join("\n").trim(),
         });
-        continue;
       }
+      continue;
+    }
 
-      // Bullet or numbered list
-      const listMatch = /^([-*•]|\d+\.)\s+(.+)$/.exec(trimmed);
-      if (listMatch) {
-        const items: { marker: string; text: string }[] = [];
-        while (i < lines.length) {
-          const m = /^([-*•]|\d+\.)\s+(.+)$/.exec(lines[i].trim());
-          if (!m) break;
-          items.push({
-            marker: m[1] === "-" || m[1] === "*" ? "•" : m[1],
-            text: m[2],
-          });
-          i++;
-        }
-        blocks.push({ type: "list", content: "", items });
-        continue;
-      }
+    // 6. Lists (bullet, numbered, task checklist, nested)
+    if (LIST_LINE_REGEX.test(rawLine)) {
+      const items: ListItemNode[] = [];
+      while (i < lines.length) {
+        const m = LIST_LINE_REGEX.exec(lines[i]);
+        if (!m) break;
+        const indentSpaces = m[1]?.replace(/\t/g, "  ").length || 0;
+        const indentLevel = Math.min(2, Math.floor(indentSpaces / 2));
+        const rawMarker = m[2];
+        const checkFlag = m[3];
+        const itemText = m[4];
 
-      // Paragraph
-      const paraLines: string[] = [];
-      while (
-        i < lines.length &&
-        lines[i].trim() &&
-        !/^(#{1,4})\s+/.test(lines[i].trim()) &&
-        !lines[i].trim().startsWith(">") &&
-        !/^([-*•]|\d+\.)\s+/.test(lines[i].trim())
-      ) {
-        paraLines.push(lines[i]);
+        items.push({
+          indent: indentLevel,
+          marker:
+            rawMarker === "-" || rawMarker === "*" || rawMarker === "•"
+              ? indentLevel > 0
+                ? "◦"
+                : "•"
+              : rawMarker,
+          checked:
+            checkFlag !== undefined
+              ? checkFlag.toLowerCase() === "x"
+              : undefined,
+          text: itemText,
+        });
         i++;
       }
+      blocks.push({ type: "list", items });
+      continue;
+    }
+
+    // 7. Paragraph
+    const paraLines: string[] = [];
+    while (i < lines.length) {
+      const cur = lines[i];
+      const curTrimmed = cur.trim();
+      if (
+        !curTrimmed ||
+        /^```/.test(curTrimmed) ||
+        /^(?:---+|\*\*\*+|___+)$/.test(curTrimmed) ||
+        /^(#{1,4})\s+/.test(curTrimmed) ||
+        curTrimmed.startsWith(">") ||
+        LIST_LINE_REGEX.test(cur) ||
+        (curTrimmed.includes("|") &&
+          i + 1 < lines.length &&
+          isTableSeparatorLine(lines[i + 1]))
+      ) {
+        break;
+      }
+      paraLines.push(cur);
+      i++;
+    }
+
+    if (paraLines.length > 0) {
       blocks.push({
         type: "paragraph",
         content: paraLines.join("\n"),
       });
+    } else {
+      i++;
     }
-  };
-
-  while ((match = fenceRegex.exec(markdown)) !== null) {
-    if (match.index > lastIdx) {
-      pushTextSection(markdown.slice(lastIdx, match.index));
-    }
-    blocks.push({
-      type: "code",
-      lang: (match[1] || "CODE").toUpperCase(),
-      content: match[2].replace(/\n$/, ""),
-    });
-    lastIdx = match.index + match[0].length;
-  }
-
-  if (lastIdx < markdown.length) {
-    pushTextSection(markdown.slice(lastIdx));
   }
 
   return blocks;
 }
 
-function renderInlineSpans(text: string): React.ReactNode[] {
-  const tokenRegex = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\)|\*[^*]+\*)/g;
+export function renderInlineSpans(text: string): React.ReactNode[] {
+  const tokenRegex =
+    /(\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|~~[^~]+~~|`[^`]+`|\[[^\]]+\]\([^)]+\)|\*[^*\n]+\*)/g;
   const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -129,13 +251,27 @@ function renderInlineSpans(text: string): React.ReactNode[] {
 
   while ((match = tokenRegex.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      nodes.push(<Text key={`t-${key++}`}>{text.slice(lastIndex, match.index)}</Text>);
+      nodes.push(
+        <Text key={`t-${key++}`}>{text.slice(lastIndex, match.index)}</Text>
+      );
     }
 
     const tok = match[0];
-    if (tok.startsWith("**") && tok.endsWith("**")) {
+    if (tok.startsWith("***") && tok.endsWith("***")) {
+      nodes.push(
+        <Text key={`bi-${key++}`} style={[styles.bold, styles.italic]}>
+          {tok.slice(3, -3)}
+        </Text>
+      );
+    } else if (tok.startsWith("**") && tok.endsWith("**")) {
       nodes.push(
         <Text key={`b-${key++}`} style={styles.bold}>
+          {tok.slice(2, -2)}
+        </Text>
+      );
+    } else if (tok.startsWith("~~") && tok.endsWith("~~")) {
+      nodes.push(
+        <Text key={`s-${key++}`} style={styles.strike}>
           {tok.slice(2, -2)}
         </Text>
       );
@@ -155,7 +291,7 @@ function renderInlineSpans(text: string): React.ReactNode[] {
             style={styles.link}
             onPress={() => Linking.openURL(url)}
           >
-            {label}
+            {label} ↗
           </Text>
         );
       } else {
@@ -168,6 +304,7 @@ function renderInlineSpans(text: string): React.ReactNode[] {
         </Text>
       );
     }
+
     lastIndex = match.index + tok.length;
   }
 
@@ -178,70 +315,148 @@ function renderInlineSpans(text: string): React.ReactNode[] {
   return nodes;
 }
 
-function CodeBlockPanel({ lang, code }: { lang: string; code: string }) {
-  const [copied, setCopied] = useState(false);
-
-  async function handleCopy() {
-    try {
-      await Clipboard.setStringAsync(code);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch {
-      // Ignore clipboard error
-    }
+const CALLOUT_THEMES: Record<
+  CalloutKind,
+  {
+    title: string;
+    color: string;
+    bg: string;
+    border: string;
+    Icon: typeof Info;
   }
+> = {
+  NOTE: {
+    title: "Note",
+    color: "#8eb8d9",
+    bg: "rgba(142, 184, 217, 0.09)",
+    border: "rgba(142, 184, 217, 0.35)",
+    Icon: Info,
+  },
+  TIP: {
+    title: "Tip",
+    color: colors.sage,
+    bg: colors.sageSoft,
+    border: colors.sageBorder,
+    Icon: Lightbulb,
+  },
+  IMPORTANT: {
+    title: "Important",
+    color: colors.accent,
+    bg: colors.accentSoft,
+    border: colors.accentBorder,
+    Icon: Sparkles,
+  },
+  WARNING: {
+    title: "Warning",
+    color: colors.warning,
+    bg: colors.warningBg,
+    border: "rgba(216, 190, 130, 0.35)",
+    Icon: AlertTriangle,
+  },
+  CAUTION: {
+    title: "Caution",
+    color: colors.danger,
+    bg: colors.dangerBg,
+    border: colors.dangerBorder,
+    Icon: ShieldAlert,
+  },
+};
 
-  return (
-    <View style={styles.codePanel}>
-      <View style={styles.codeHeader}>
-        <Text style={styles.codeLang}>{lang || "CODE"}</Text>
-        <Pressable onPress={handleCopy} style={styles.copyCodeBtn} hitSlop={8}>
-          {copied ? (
-            <Check size={13} color={colors.sage} />
-          ) : (
-            <Copy size={13} color={colors.muted} />
-          )}
-          <Text style={[styles.copyCodeText, copied && { color: colors.sage }]}>
-            {copied ? "Copied" : "Copy"}
-          </Text>
-        </Pressable>
-      </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        <Text selectable style={styles.codeText}>
-          {code}
-        </Text>
-      </ScrollView>
-    </View>
-  );
-}
+export function MarkdownContent({
+  content,
+  isStreaming = false,
+}: {
+  content: string;
+  isStreaming?: boolean;
+}) {
+  const blocks = useMemo(() => parseRichMarkdown(content), [content]);
 
-export function MarkdownContent({ content }: { content: string }) {
-  const blocks = parseMarkdownBlocks(content);
+  if (!content && isStreaming) {
+    return <Text style={styles.cursorOnly}>▍</Text>;
+  }
 
   return (
     <View style={styles.container}>
       {blocks.map((block, index) => {
+        const isLastBlock = index === blocks.length - 1;
+        const showInlineCursor = isStreaming && isLastBlock;
+
         if (block.type === "code") {
           return (
-            <CodeBlockPanel
+            <CodeBlock
               key={`blk-${index}`}
-              lang={block.lang || "CODE"}
+              lang={block.lang}
               code={block.content}
+              isStreamingBlock={Boolean(isStreaming && (block.unclosed || isLastBlock))}
             />
           );
         }
 
-        if (block.type === "heading") {
-          const fontSize =
-            block.level === 1 ? 19 : block.level === 2 ? 17 : 15;
+        if (block.type === "table") {
           return (
-            <Text
+            <MarkdownTable
               key={`blk-${index}`}
-              selectable
-              style={[styles.heading, { fontSize }]}
+              table={block.table}
+              renderInline={renderInlineSpans}
+            />
+          );
+        }
+
+        if (block.type === "hr") {
+          return <View key={`blk-${index}`} style={styles.hr} />;
+        }
+
+        if (block.type === "heading") {
+          const headingStyle =
+            block.level === 1
+              ? styles.h1
+              : block.level === 2
+              ? styles.h2
+              : block.level === 3
+              ? styles.h3
+              : styles.h4;
+
+          return (
+            <View
+              key={`blk-${index}`}
+              style={block.level <= 2 ? styles.headingWithDivider : undefined}
             >
-              {renderInlineSpans(block.content)}
-            </Text>
+              <Text selectable style={[styles.headingBase, headingStyle]}>
+                {renderInlineSpans(block.content)}
+                {showInlineCursor ? (
+                  <Text style={styles.streamCursor}> ▍</Text>
+                ) : null}
+              </Text>
+            </View>
+          );
+        }
+
+        if (block.type === "callout") {
+          const theme = CALLOUT_THEMES[block.kind];
+          const IconComp = theme.Icon;
+          return (
+            <View
+              key={`blk-${index}`}
+              style={[
+                styles.calloutBox,
+                { backgroundColor: theme.bg, borderColor: theme.border },
+              ]}
+            >
+              <View style={styles.calloutHeader}>
+                <IconComp size={14} color={theme.color} />
+                <Text style={[styles.calloutTitle, { color: theme.color }]}>
+                  {theme.title}
+                </Text>
+              </View>
+              {block.content ? (
+                <Text selectable style={styles.calloutBody}>
+                  {renderInlineSpans(block.content)}
+                  {showInlineCursor ? (
+                    <Text style={styles.streamCursor}> ▍</Text>
+                  ) : null}
+                </Text>
+              ) : null}
+            </View>
           );
         }
 
@@ -250,22 +465,53 @@ export function MarkdownContent({ content }: { content: string }) {
             <View key={`blk-${index}`} style={styles.quoteBox}>
               <Text selectable style={styles.quoteText}>
                 {renderInlineSpans(block.content)}
+                {showInlineCursor ? (
+                  <Text style={styles.streamCursor}> ▍</Text>
+                ) : null}
               </Text>
             </View>
           );
         }
 
-        if (block.type === "list" && block.items) {
+        if (block.type === "list") {
           return (
             <View key={`blk-${index}`} style={styles.listWrap}>
-              {block.items.map((item, idx) => (
-                <View key={`li-${idx}`} style={styles.listRow}>
-                  <Text style={styles.listMarker}>{item.marker}</Text>
-                  <Text selectable style={styles.paragraph}>
-                    {renderInlineSpans(item.text)}
-                  </Text>
-                </View>
-              ))}
+              {block.items.map((item, idx) => {
+                const isLastItem = showInlineCursor && idx === block.items.length - 1;
+                return (
+                  <View
+                    key={`li-${idx}`}
+                    style={[
+                      styles.listRow,
+                      item.indent > 0 && { paddingLeft: item.indent * 16 },
+                    ]}
+                  >
+                    {item.checked !== undefined ? (
+                      <View style={styles.checkboxWrap}>
+                        {item.checked ? (
+                          <CheckSquare size={15} color={colors.sage} />
+                        ) : (
+                          <Square size={15} color={colors.muted} />
+                        )}
+                      </View>
+                    ) : (
+                      <Text style={styles.listMarker}>{item.marker}</Text>
+                    )}
+                    <Text
+                      selectable
+                      style={[
+                        styles.paragraph,
+                        item.checked && styles.checkedItemText,
+                      ]}
+                    >
+                      {renderInlineSpans(item.text)}
+                      {isLastItem ? (
+                        <Text style={styles.streamCursor}> ▍</Text>
+                      ) : null}
+                    </Text>
+                  </View>
+                );
+              })}
             </View>
           );
         }
@@ -273,6 +519,9 @@ export function MarkdownContent({ content }: { content: string }) {
         return (
           <Text key={`blk-${index}`} selectable style={styles.paragraph}>
             {renderInlineSpans(block.content)}
+            {showInlineCursor ? (
+              <Text style={styles.streamCursor}> ▍</Text>
+            ) : null}
           </Text>
         );
       })}
@@ -288,7 +537,7 @@ const monoFont = Platform.select({
 
 const styles = StyleSheet.create({
   container: {
-    gap: 10,
+    gap: 11,
   },
   paragraph: {
     flex: 1,
@@ -296,10 +545,41 @@ const styles = StyleSheet.create({
     lineHeight: 23,
     color: colors.text,
   },
-  heading: {
+  headingBase: {
+    color: "#f3f1ea",
     fontWeight: "700",
-    color: colors.text,
+    letterSpacing: -0.3,
+  },
+  headingWithDivider: {
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+    marginTop: 6,
+  },
+  h1: {
+    fontSize: 20,
+    lineHeight: 27,
+  },
+  h2: {
+    fontSize: 17.5,
+    lineHeight: 24,
+  },
+  h3: {
+    fontSize: 15.5,
+    lineHeight: 22,
     marginTop: 4,
+    color: colors.accent,
+  },
+  h4: {
+    fontSize: 14.5,
+    lineHeight: 21,
+    marginTop: 2,
+    color: colors.textSecondary,
+  },
+  hr: {
+    height: 1,
+    backgroundColor: colors.lineStrong,
+    marginVertical: 6,
   },
   bold: {
     fontWeight: "700",
@@ -307,35 +587,65 @@ const styles = StyleSheet.create({
   },
   italic: {
     fontStyle: "italic",
+    color: "#e0e3d8",
+  },
+  strike: {
+    textDecorationLine: "line-through",
+    color: colors.muted,
   },
   inlineCode: {
     fontFamily: monoFont,
     fontSize: 12.5,
-    backgroundColor: colors.surfaceElevated,
+    backgroundColor: "#242922",
     color: colors.accent,
     paddingHorizontal: 5,
     paddingVertical: 1,
-    borderRadius: 4,
+    borderRadius: 5,
   },
   link: {
     color: colors.accent,
     textDecorationLine: "underline",
+    fontWeight: "500",
+  },
+  calloutBox: {
+    borderWidth: 1,
+    borderLeftWidth: 3.5,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 5,
+  },
+  calloutHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  calloutTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+  },
+  calloutBody: {
+    fontSize: 13.5,
+    lineHeight: 20.5,
+    color: colors.text,
   },
   quoteBox: {
     borderLeftWidth: 3,
-    borderLeftColor: colors.accent,
-    backgroundColor: colors.accentSoft,
+    borderLeftColor: colors.sage,
+    backgroundColor: "rgba(166, 185, 154, 0.08)",
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 6,
+    borderRadius: 7,
   },
   quoteText: {
-    fontSize: 13,
-    lineHeight: 20,
+    fontSize: 13.5,
+    lineHeight: 21,
     color: colors.textSecondary,
+    fontStyle: "italic",
   },
   listWrap: {
-    gap: 6,
+    gap: 7,
   },
   listRow: {
     flexDirection: "row",
@@ -345,49 +655,24 @@ const styles = StyleSheet.create({
   listMarker: {
     fontSize: 14,
     lineHeight: 23,
-    color: colors.sage,
-    fontWeight: "600",
-    minWidth: 14,
-  },
-  codePanel: {
-    borderRadius: 10,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.codeBg,
-    marginVertical: 2,
-  },
-  codeHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: colors.codeHeader,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.lineSubtle,
-  },
-  codeLang: {
-    fontSize: 10,
-    letterSpacing: 1.1,
+    color: colors.accent,
     fontWeight: "700",
+    minWidth: 16,
+  },
+  checkboxWrap: {
+    paddingTop: 4,
+  },
+  checkedItemText: {
     color: colors.muted,
+    textDecorationLine: "line-through",
   },
-  copyCodeBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
+  streamCursor: {
+    color: colors.accent,
+    fontSize: 13,
   },
-  copyCodeText: {
-    fontSize: 11.5,
-    color: colors.muted,
-    fontWeight: "500",
-  },
-  codeText: {
-    fontFamily: monoFont,
-    fontSize: 12.5,
-    lineHeight: 19,
-    color: "#dfe4d8",
-    padding: 12,
+  cursorOnly: {
+    color: colors.accent,
+    fontSize: 15,
+    lineHeight: 22,
   },
 });
