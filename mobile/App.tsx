@@ -100,7 +100,7 @@ function FridayWorkspace() {
   const [previewImage, setPreviewImage] = useState<Attachment | null>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
 
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const sendingRef = useRef(false);
 
   const activeConversation =
@@ -392,7 +392,7 @@ function FridayWorkspace() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
-      <StatusBar style="light" backgroundColor={colors.bg} />
+      <StatusBar style="light" />
 
       <TopBar
         title={activeConversation?.title || "New conversation"}

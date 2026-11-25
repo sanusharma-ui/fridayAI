@@ -1,5 +1,5 @@
 import * as DocumentPicker from "expo-document-picker";
-import * as FileSystem from "expo-file-system/legacy";
+import { File } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import { Platform } from "react-native";
 import type { Attachment } from "../types";
@@ -83,9 +83,8 @@ export async function pickPdfDocuments(): Promise<Attachment[]> {
         reader.readAsDataURL(blob);
       });
     } else {
-      const base64 = await FileSystem.readAsStringAsync(asset.uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+      const pickedFile = new File(asset.uri);
+      const base64 = await pickedFile.base64();
       dataUrl = `data:application/pdf;base64,${base64}`;
     }
 
