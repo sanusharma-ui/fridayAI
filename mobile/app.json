@@ -15,6 +15,9 @@
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Allow Friday to attach images from your photo library for visual analysis.",
         "NSContactsUsageDescription": "Allow Friday to search and save contacts in your phonebook.",
+        "NSCalendarsUsageDescription": "Allow Friday to read and schedule events in your phone calendar.",
+        "NSCalendarsFullAccessUsageDescription": "Allow Friday to read and schedule events in your phone calendar.",
+        "NSRemindersUsageDescription": "Allow Friday to manage reminders on your device.",
         "LSApplicationQueriesSchemes": [
           "whatsapp",
           "upi",
@@ -28,7 +31,12 @@
       "package": "com.friday.assistant",
       "permissions": [
         "android.permission.READ_CONTACTS",
-        "android.permission.WRITE_CONTACTS"
+        "android.permission.WRITE_CONTACTS",
+        "android.permission.READ_CALENDAR",
+        "android.permission.WRITE_CALENDAR",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "com.android.alarm.permission.SET_ALARM"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#141615"
@@ -37,6 +45,13 @@
     "plugins": [
       "expo-secure-store",
       "expo-sqlite",
+      "expo-notifications",
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Allow Friday to read and create events in your calendar."
+        }
+      ],
       [
         "expo-contacts",
         {

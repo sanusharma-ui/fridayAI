@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import {
+  CalendarPlus,
   Check,
   IndianRupee,
   MessageCircle,
@@ -25,6 +26,10 @@ import {
   formatWhatsAppPhone,
   saveContactToDevicePhonebook,
 } from "../services/deviceContacts";
+import {
+  createPhoneCalendarEvent,
+  formatReadableDateTime,
+} from "../services/deviceSchedule";
 import { colors } from "../theme/colors";
 import type { PendingDeviceAction } from "../types";
 
@@ -61,6 +66,9 @@ export function ActionConfirmCard({
     action.contactName || ""
   );
   const [contactPhoneText, setContactPhoneText] = useState(action.phone || "");
+  const [calLocationText, setCalLocationText] = useState(
+    action.location || ""
+  );
   const [busy, setBusy] = useState(false);
 
   const isPending = action.status === "pending";
@@ -235,6 +243,43 @@ export function ActionConfirmCard({
         status: "confirmed",
         contactName: cleanName,
         phone: cleanPhone,
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleConfirmCalendarEvent() {
+    const cleanTitle = contactNameText.trim();
+    if (!cleanTitle || !action.startDateIso) {
+      Alert.alert("Missing Info", "Event title and start time are required.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const res = await createPhoneCalendarEvent({
+        title: cleanTitle,
+        startDateIso: action.startDateIso,
+        endDateIso: action.endDateIso,
+        location: calLocationText.trim() || undefined,
+        notes: upiNoteText.trim() || undefined,
+        reminderMinutesBefore: action.reminderMinutesBefore,
+      });
+
+      if (!res.ok) {
+        Alert.alert(
+          "Could Not Add Event",
+          res.error || "Unable to create event in phone calendar."
+        );
+        return;
+      }
+
+      onUpdateAction(action.id, {
+        status: "confirmed",
+        contactName: cleanTitle,
+        location: calLocationText.trim() || undefined,
+        note: upiNoteText.trim() || undefined,
       });
     } finally {
       setBusy(false);
@@ -592,6 +637,123 @@ export function ActionConfirmCard({
               <>
                 <X size={14} color={colors.muted} />
                 <Text style={styles.statusFooterText}>Save cancelled</Text>
+              </>
+            )}
+          </View>
+        )}
+      </View>
+    );
+  }
+
+  // 4B. CALENDAR EVENT CONFIRMATION CARD
+  if (action.type === "calendar_event") {
+    const startObj = action.startDateIso ? new Date(action.startDateIso) : null;
+    const endObj = action.endDateIso ? new Date(action.endDateIso) : null;
+    const timeSummary =
+      startObj && !Number.isNaN(startObj.getTime())
+        ? endObj && !Number.isNaN(endObj.getTime())
+          ? `${formatReadableDateTime(startObj)} – ${endObj.toLocaleTimeString(
+              "en-IN",
+              { hour: "numeric", minute: "2-digit", hour12: true }
+            )}`
+          : formatReadableDateTime(startObj)
+        : action.startDateIso || "";
+
+    return (
+      <View
+        style={[
+          styles.card,
+          styles.smsBorder,
+          action.status === "cancelled" && styles.cardCancelled,
+        ]}
+      >
+        <View style={styles.headerRow}>
+          <View style={styles.smsIconWrap}>
+            <CalendarPlus size={18} color={colors.sky} />
+          </View>
+          <View style={styles.headerTextWrap}>
+            <Text style={styles.smsTag}>
+              Phone Calendar Event · Alert {action.reminderMinutesBefore ?? 15}m
+              before
+            </Text>
+            <Text style={styles.contactTitle}>
+              {action.contactName || contactNameText}
+            </Text>
+            <Text style={styles.phoneText}>{timeSummary}</Text>
+          </View>
+        </View>
+
+        {isPending ? (
+          <>
+            <View style={styles.upiInputsRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fieldLabel}>Event Title</Text>
+                <TextInput
+                  value={contactNameText}
+                  onChangeText={setContactNameText}
+                  placeholder="Meeting title"
+                  placeholderTextColor={colors.subtle}
+                  style={styles.compactInput}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fieldLabel}>Location (optional)</Text>
+                <TextInput
+                  value={calLocationText}
+                  onChangeText={setCalLocationText}
+                  placeholder="Venue or link"
+                  placeholderTextColor={colors.subtle}
+                  style={styles.compactInput}
+                />
+              </View>
+            </View>
+
+            <View style={styles.btnRow}>
+              <Pressable
+                disabled={busy}
+                onPress={handleConfirmCalendarEvent}
+                style={({ pressed }) => [
+                  styles.smsConfirmBtn,
+                  (pressed || busy) && styles.pressed,
+                ]}
+              >
+                {busy ? (
+                  <ActivityIndicator size="small" color="#061629" />
+                ) : (
+                  <CalendarPlus size={15} color="#061629" />
+                )}
+                <Text style={styles.smsConfirmText}>Add to Calendar</Text>
+              </Pressable>
+
+              <Pressable
+                disabled={busy}
+                onPress={handleCancel}
+                style={({ pressed }) => [
+                  styles.cancelBtn,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <X size={15} color={colors.muted} />
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </Pressable>
+            </View>
+          </>
+        ) : (
+          <View style={styles.statusFooter}>
+            {isConfirmed ? (
+              <>
+                <Check size={14} color={colors.sage} />
+                <Text style={[styles.statusFooterText, { color: colors.sage }]}>
+                  Added to Phone Calendar
+                  {action.location ? ` · ${action.location}` : ""}
+                </Text>
+              </>
+            ) : (
+              <>
+                <X size={14} color={colors.muted} />
+                <Text style={styles.statusFooterText}>
+                  Calendar event cancelled
+                </Text>
               </>
             )}
           </View>

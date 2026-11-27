@@ -13,6 +13,12 @@ import {
   upsertContact,
 } from "./contactsDb";
 import { searchDeviceContacts } from "./deviceContacts";
+import {
+  manageScheduledReminders,
+  readPhoneCalendarEvents,
+  scheduleLocalReminder,
+  setNativeAlarmOrTimer,
+} from "./deviceSchedule";
 
 function makeActionId(): string {
   return `act_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
@@ -42,6 +48,16 @@ export function describeToolActivity(toolName: string): string {
       return "Preparing WhatsApp message…";
     case "prepare_upi_payment":
       return "Preparing UPI payment card…";
+    case "schedule_local_reminder":
+      return "Scheduling phone reminder…";
+    case "list_or_cancel_reminders":
+      return "Checking scheduled reminders…";
+    case "set_phone_alarm_or_timer":
+      return "Setting clock alarm/timer…";
+    case "get_calendar_events":
+      return "Reading phone calendar…";
+    case "prepare_calendar_event":
+      return "Preparing calendar event…";
     default:
       return "Running tool…";
   }
@@ -524,6 +540,228 @@ export async function executeClientToolCalls(
               upiId,
               amount,
               note: "A strict UPI Payment confirmation card is now displayed on screen. Ask the user to verify the UPI ID & amount and tap Pay via UPI App.",
+            }),
+          });
+          break;
+        }
+
+        case "schedule_local_reminder": {
+          const title =
+            typeof args.title === "string"
+              ? args.title.trim()
+              : "Friday Reminder";
+          const body =
+            typeof args.body === "string" ? args.body.trim() : title;
+          const delayMinutes =
+            typeof args.delayMinutes === "number"
+              ? args.delayMinutes
+              : typeof args.delayMinutes === "string" && args.delayMinutes.trim()
+              ? Number(args.delayMinutes)
+              : undefined;
+          const triggerAtIso =
+            typeof args.triggerAtIso === "string"
+              ? args.triggerAtIso.trim()
+              : undefined;
+          const repeatDaily = Boolean(args.repeatDaily);
+          const dailyHour =
+            typeof args.dailyHour === "number" ? args.dailyHour : undefined;
+          const dailyMinute =
+            typeof args.dailyMinute === "number" ? args.dailyMinute : undefined;
+
+          const res = await scheduleLocalReminder({
+            title,
+            body,
+            delayMinutes,
+            triggerAtIso,
+            repeatDaily,
+            dailyHour,
+            dailyMinute,
+          });
+
+          if (res.ok) {
+            badges.push({
+              id: makeActionId(),
+              kind: "schedule",
+              label: `Reminder set · ${res.scheduledLabel || title}`,
+            });
+          }
+
+          toolOutputs.push({
+            toolCallId: call.id,
+            outputJson: JSON.stringify(res),
+          });
+          break;
+        }
+
+        case "list_or_cancel_reminders": {
+          const rawAction =
+            typeof args.action === "string" ? args.action : "list";
+          const action: "list" | "cancel_one" | "cancel_all" =
+            rawAction === "cancel_one" || rawAction === "cancel_all"
+              ? rawAction
+              : "list";
+          const reminderId =
+            typeof args.reminderId === "string" ? args.reminderId : undefined;
+
+          const res = await manageScheduledReminders({ action, reminderId });
+
+          if (res.ok && action !== "list") {
+            badges.push({
+              id: makeActionId(),
+              kind: "update",
+              label:
+                action === "cancel_all"
+                  ? "Cleared all reminders"
+                  : "Reminder cancelled",
+            });
+          }
+
+          toolOutputs.push({
+            toolCallId: call.id,
+            outputJson: JSON.stringify(res),
+          });
+          break;
+        }
+
+        case "set_phone_alarm_or_timer": {
+          const mode: "alarm" | "timer" =
+            args.mode === "timer" ? "timer" : "alarm";
+          const label =
+            typeof args.label === "string" ? args.label : undefined;
+          const hour =
+            typeof args.hour === "number"
+              ? args.hour
+              : typeof args.hour === "string" && args.hour.trim()
+              ? Number(args.hour)
+              : undefined;
+          const minute =
+            typeof args.minute === "number"
+              ? args.minute
+              : typeof args.minute === "string" && args.minute.trim()
+              ? Number(args.minute)
+              : undefined;
+          const durationSeconds =
+            typeof args.durationSeconds === "number"
+              ? args.durationSeconds
+              : typeof args.durationSeconds === "string" &&
+                args.durationSeconds.trim()
+              ? Number(args.durationSeconds)
+              : undefined;
+
+          const res = await setNativeAlarmOrTimer({
+            mode,
+            label,
+            hour,
+            minute,
+            durationSeconds,
+          });
+
+          if (res.ok && res.summary) {
+            badges.push({
+              id: makeActionId(),
+              kind: "schedule",
+              label: res.summary,
+            });
+          }
+
+          toolOutputs.push({
+            toolCallId: call.id,
+            outputJson: JSON.stringify(res),
+          });
+          break;
+        }
+
+        case "get_calendar_events": {
+          const startDateIso =
+            typeof args.startDateIso === "string"
+              ? args.startDateIso
+              : undefined;
+          const endDateIso =
+            typeof args.endDateIso === "string" ? args.endDateIso : undefined;
+          const query =
+            typeof args.query === "string" ? args.query : undefined;
+
+          const res = await readPhoneCalendarEvents({
+            startDateIso,
+            endDateIso,
+            query,
+          });
+
+          if (res.ok) {
+            badges.push({
+              id: makeActionId(),
+              kind: "schedule",
+              label: `Calendar checked (${res.events?.length ?? 0} events)`,
+            });
+          }
+
+          toolOutputs.push({
+            toolCallId: call.id,
+            outputJson: JSON.stringify(res),
+          });
+          break;
+        }
+
+        case "prepare_calendar_event": {
+          const title =
+            typeof args.title === "string" ? args.title.trim() : "";
+          const startDateIso =
+            typeof args.startDateIso === "string"
+              ? args.startDateIso.trim()
+              : "";
+
+          if (!title || !startDateIso) {
+            toolOutputs.push({
+              toolCallId: call.id,
+              outputJson: JSON.stringify({
+                success: false,
+                error:
+                  "Both 'title' and 'startDateIso' are required to prepare a calendar event.",
+              }),
+            });
+            break;
+          }
+
+          const endDateIso =
+            typeof args.endDateIso === "string" && args.endDateIso.trim()
+              ? args.endDateIso.trim()
+              : undefined;
+          const location =
+            typeof args.location === "string" && args.location.trim()
+              ? args.location.trim()
+              : undefined;
+          const notes =
+            typeof args.notes === "string" && args.notes.trim()
+              ? args.notes.trim()
+              : undefined;
+          const reminderMinutesBefore =
+            typeof args.reminderMinutesBefore === "number"
+              ? args.reminderMinutesBefore
+              : 15;
+
+          const actionCard: PendingDeviceAction = {
+            id: makeActionId(),
+            type: "calendar_event",
+            contactName: title,
+            phone: "",
+            startDateIso,
+            endDateIso,
+            location,
+            note: notes,
+            reminderMinutesBefore,
+            status: "pending",
+          };
+          pendingActions.push(actionCard);
+
+          toolOutputs.push({
+            toolCallId: call.id,
+            outputJson: JSON.stringify({
+              status: "awaiting_user_confirmation",
+              title,
+              startDateIso,
+              endDateIso,
+              location,
+              note: "A Calendar Event Confirmation card is now displayed on screen. Ask the user to tap Add to Calendar to save it.",
             }),
           });
           break;

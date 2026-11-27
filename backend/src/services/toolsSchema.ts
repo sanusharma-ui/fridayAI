@@ -352,4 +352,187 @@ export const FRIDAY_TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "schedule_local_reminder",
+      description:
+        "Schedule a real local push notification reminder on the user's phone (expo-notifications) with sound & alert. Supports relative delay ('20 minute baad paani peena hai'), exact date/time ('Kal subah 10 baje electricity bill bharna hai'), or daily recurring time ('Roz raat 9:30 baje dawai leni hai').",
+      parameters: {
+        type: "object",
+        properties: {
+          title: {
+            type: "string",
+            description:
+              "Short notification title (e.g. '💊 Medicine Reminder', '⚡ Pay Electricity Bill', '💧 Drink Water').",
+          },
+          body: {
+            type: "string",
+            description:
+              "Clear reminder message shown in the notification banner.",
+          },
+          delayMinutes: {
+            type: "number",
+            description:
+              "Trigger after N minutes from right now (e.g. 20 for '20 min baad', 0.5 for '30 seconds baad'). Use this for relative delays.",
+          },
+          triggerAtIso: {
+            type: "string",
+            description:
+              "Exact future ISO 8601 date-time (e.g. '2026-11-28T10:00:00+05:30') when user gives a specific date/time and repeatDaily is false.",
+          },
+          repeatDaily: {
+            type: "boolean",
+            description:
+              "Set true ONLY if the user wants a daily recurring reminder every day at dailyHour:dailyMinute.",
+          },
+          dailyHour: {
+            type: "number",
+            description:
+              "Hour in 24-hour format (0-23) when repeatDaily is true.",
+          },
+          dailyMinute: {
+            type: "number",
+            description: "Minute (0-59) when repeatDaily is true.",
+          },
+        },
+        required: ["title", "body"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_or_cancel_reminders",
+      description:
+        "List all active scheduled local notification reminders on the user's phone, cancel a specific reminder by ID, or cancel all scheduled reminders.",
+      parameters: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: ["list", "cancel_one", "cancel_all"],
+            description:
+              "'list' to view scheduled reminders, 'cancel_one' to cancel by reminderId, 'cancel_all' to clear all scheduled reminders.",
+          },
+          reminderId: {
+            type: "string",
+            description:
+              "Notification identifier returned by list_or_cancel_reminders or schedule_local_reminder when action is 'cancel_one'.",
+          },
+        },
+        required: ["action"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "set_phone_alarm_or_timer",
+      description:
+        "Set a real System Clock Alarm ('Subah 6:30 ka alarm laga de') or Countdown Timer ('15 minute ka timer chala de') in the user's native Android Clock app (with automatic notification fallback on iOS).",
+      parameters: {
+        type: "object",
+        properties: {
+          mode: {
+            type: "string",
+            enum: ["alarm", "timer"],
+            description:
+              "'alarm' for a specific clock time (hour:minute), or 'timer' for a countdown duration.",
+          },
+          label: {
+            type: "string",
+            description:
+              "Optional alarm/timer label (e.g. 'Morning Gym', 'Tea Timer').",
+          },
+          hour: {
+            type: "number",
+            description:
+              "24-hour clock hour (0-23) when mode is 'alarm' (e.g. 6 for 6:30 AM, 18 for 6:30 PM).",
+          },
+          minute: {
+            type: "number",
+            description: "Clock minute (0-59) when mode is 'alarm'.",
+          },
+          durationSeconds: {
+            type: "number",
+            description:
+              "Total countdown seconds when mode is 'timer' (e.g. 900 for 15 minutes).",
+          },
+        },
+        required: ["mode"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_calendar_events",
+      description:
+        "Read upcoming events, meetings, and schedules from the user's real Phone / Google / iCloud Calendar (expo-calendar). Call this when the user asks 'Aaj mera schedule kya hai?', 'Kal koi meeting hai kya?', or 'Is hafte ke events batao'.",
+      parameters: {
+        type: "object",
+        properties: {
+          startDateIso: {
+            type: "string",
+            description:
+              "Optional start ISO 8601 date-time. Defaults to start of today if omitted.",
+          },
+          endDateIso: {
+            type: "string",
+            description:
+              "Optional end ISO 8601 date-time. Defaults to 7 days from start if omitted.",
+          },
+          query: {
+            type: "string",
+            description:
+              "Optional keyword filter for event title, location, or notes.",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "prepare_calendar_event",
+      description:
+        "Prepare a Calendar Event confirmation card so the user can review and add an event/meeting to their real Phone / Google Calendar in 1 tap.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: {
+            type: "string",
+            description:
+              "Event or meeting title (e.g. 'Dentist Appointment', 'Client Call with Rahul').",
+          },
+          startDateIso: {
+            type: "string",
+            description:
+              "Event start ISO 8601 date-time (e.g. '2026-11-28T15:00:00+05:30').",
+          },
+          endDateIso: {
+            type: "string",
+            description:
+              "Optional event end ISO 8601 date-time. Defaults to 1 hour after startDateIso if omitted.",
+          },
+          location: {
+            type: "string",
+            description: "Optional venue, address, or meeting link.",
+          },
+          notes: {
+            type: "string",
+            description: "Optional agenda or notes for the calendar event.",
+          },
+          reminderMinutesBefore: {
+            type: "number",
+            description:
+              "Minutes before event to trigger calendar alert (default 15).",
+          },
+        },
+        required: ["title", "startDateIso"],
+      },
+    },
+  },
 ] as const;

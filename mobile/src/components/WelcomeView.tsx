@@ -1,15 +1,15 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import {
+  AlarmClock,
   ArrowDownLeft,
   ArrowRight,
   ArrowUpRight,
-  IndianRupee,
+  CalendarDays,
   KeyRound,
   MessageCircle,
   PhoneCall,
   Users,
-  Wallet,
 } from "lucide-react-native";
 import { colors } from "../theme/colors";
 import { useResponsive } from "../theme/responsive";
@@ -36,33 +36,33 @@ const BENTO_CARDS = [
     prompt: "Mummy ko call laga do.",
   },
   {
+    icon: AlarmClock,
+    tint: colors.accent,
+    tintBg: colors.accentSoft,
+    tintBorder: colors.accentBorder,
+    title: "Alarms & Reminders",
+    subtitle: "Clock alarms & push alerts",
+    prompt:
+      "Kal subah 6:30 ka alarm laga do aur 20 minute baad paani peene ka reminder de dena.",
+  },
+  {
+    icon: CalendarDays,
+    tint: colors.warning,
+    tintBg: colors.warningBg,
+    tintBorder: colors.warningBorder,
+    title: "Phone Calendar",
+    subtitle: "Check schedule & add events",
+    prompt: "Aaj aur kal mera calendar schedule kya hai?",
+  },
+  {
     icon: MessageCircle,
     tint: colors.sky,
     tintBg: colors.skySoft,
     tintBorder: colors.skyBorder,
-    title: "WhatsApp & SMS Drafts",
-    subtitle: "Review before opening chat",
+    title: "WhatsApp, SMS & UPI",
+    subtitle: "Confirm cards before sending",
     prompt:
       "Rahul ko WhatsApp message bana do ki main 10 minute me pahunch raha hoon.",
-  },
-  {
-    icon: Wallet,
-    tint: colors.accent,
-    tintBg: colors.accentSoft,
-    tintBorder: colors.accentBorder,
-    title: "Track Hisaab & Bills",
-    subtitle: "Lena-dena & reminders",
-    prompt:
-      "Sharma ji ko 500 rupaye electricity bill ke dene hain, unki UPI ID sharma@okaxis bhi save kar lo.",
-  },
-  {
-    icon: IndianRupee,
-    tint: colors.warning,
-    tintBg: colors.warningBg,
-    tintBorder: colors.warningBorder,
-    title: "1-Tap UPI Pay Card",
-    subtitle: "Strict verify before GPay/PhonePe",
-    prompt: "Sharma ji ko 500 rupaye electricity bill ke UPI kar do.",
   },
 ];
 

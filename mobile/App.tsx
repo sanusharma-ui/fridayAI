@@ -54,6 +54,7 @@ import {
   describeToolActivity,
   executeClientToolCalls,
 } from "./src/services/toolExecutor";
+import { initializeNotificationsRuntime } from "./src/services/deviceSchedule";
 import { colors } from "./src/theme/colors";
 import { useResponsive } from "./src/theme/responsive";
 import type {
@@ -164,6 +165,7 @@ function FridayWorkspace() {
   }, []);
 
   useEffect(() => {
+    initializeNotificationsRuntime();
     (async () => {
       const [chatState, savedSettings, cachedModels] = await Promise.all([
         loadSavedChatState(),
@@ -686,6 +688,8 @@ function FridayWorkspace() {
           rawReceivedContent = `Maine **${firstAct.contactName}** (${firstAct.upiId}) ke liye UPI payment card ready kar diya hai. Details verify karke proceed karein.`;
         } else if (firstAct.type === "save_device_contact") {
           rawReceivedContent = `**${firstAct.contactName}** ko phonebook me save karne ke liye neeche **Save to Phonebook** tap karein.`;
+        } else if (firstAct.type === "calendar_event") {
+          rawReceivedContent = `Maine **${firstAct.contactName}** ke liye calendar event card ready kar diya hai. Save karne ke liye **Add to Calendar** tap karein.`;
         } else {
           rawReceivedContent = `Maine **${firstAct.contactName}** ke liye SMS draft tayyar kar diya hai. Review karke **Confirm & Open SMS** tap karein.`;
         }

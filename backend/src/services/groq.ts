@@ -256,8 +256,23 @@ function buildMessagesPayload(params: {
     (contextSections.length > 0 ? `${contextSections.join("\n\n")}\n\n` : "") +
     (userMessage || "Please analyze the attached file(s).");
 
+  const now = new Date();
+  const tzOffsetMin = -now.getTimezoneOffset();
+  const tzSign = tzOffsetMin >= 0 ? "+" : "-";
+  const tzAbs = Math.abs(tzOffsetMin);
+  const tzIsoOffset = `${tzSign}${String(Math.floor(tzAbs / 60)).padStart(2, "0")}:${String(tzAbs % 60).padStart(2, "0")}`;
+  const liveClockLine = `\n\n## Current Local Date & Time\nRight now it is: ${now.toLocaleString("en-IN", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  })} (ISO: ${now.toISOString()}, Local Offset: ${tzIsoOffset}). Use this exact reference when resolving "aaj", "kal", "parso", "subah", "shaam", or relative times.`;
+
   const messages: unknown[] = [
-    { role: "system", content: FRIDAY_SYSTEM_PROMPT },
+    { role: "system", content: `${FRIDAY_SYSTEM_PROMPT}${liveClockLine}` },
     ...history
       .filter((t) => t.content.trim().length > 0)
       .map((t) => ({ role: t.role, content: t.content })),

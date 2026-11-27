@@ -55,7 +55,8 @@ export type DeviceActionType =
   | "sms"
   | "whatsapp"
   | "upi"
-  | "save_device_contact";
+  | "save_device_contact"
+  | "calendar_event";
 
 export interface PendingDeviceAction {
   id: string;
@@ -69,6 +70,10 @@ export interface PendingDeviceAction {
   email?: string;
   company?: string;
   relationship?: string;
+  startDateIso?: string;
+  endDateIso?: string;
+  location?: string;
+  reminderMinutesBefore?: number;
   reason?: string;
   status: "pending" | "confirmed" | "cancelled";
 }
@@ -76,7 +81,7 @@ export interface PendingDeviceAction {
 export interface ToolBadgeItem {
   id: string;
   label: string;
-  kind: "contact" | "memory" | "search" | "update";
+  kind: "contact" | "memory" | "search" | "update" | "schedule";
 }
 
 export interface ToolCallPayload {
