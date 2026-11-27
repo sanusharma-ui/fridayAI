@@ -4,10 +4,10 @@ import {
   ArrowDownLeft,
   ArrowRight,
   ArrowUpRight,
-  Code2,
+  IndianRupee,
   KeyRound,
+  MessageCircle,
   PhoneCall,
-  UserPlus,
   Users,
   Wallet,
 } from "lucide-react-native";
@@ -27,44 +27,42 @@ interface WelcomeViewProps {
 
 const BENTO_CARDS = [
   {
-    icon: UserPlus,
-    tint: colors.accent,
-    tintBg: colors.accentSoft,
-    tintBorder: colors.accentBorder,
-    title: "Save Contact & Info",
-    subtitle: "Phone, birthday, notes",
-    prompt:
-      "Rahul ka number 9876543210 save kar lo, birthday 18 August hai.",
-  },
-  {
-    icon: Wallet,
+    icon: PhoneCall,
     tint: colors.sage,
     tintBg: colors.sageSoft,
     tintBorder: colors.sageBorder,
-    title: "Track Hisaab & Bills",
-    subtitle: "Lena-dena & reminders",
-    prompt:
-      "Sharma ji ko 500 rupaye electricity bill ke dene hain, yaad rakhna.",
+    title: "Phonebook Search & Call",
+    subtitle: "Searches real phone contacts",
+    prompt: "Mummy ko call laga do.",
   },
   {
-    icon: PhoneCall,
+    icon: MessageCircle,
     tint: colors.sky,
     tintBg: colors.skySoft,
     tintBorder: colors.skyBorder,
-    title: "Call or Draft SMS",
-    subtitle: "Confirms before sending",
+    title: "WhatsApp & SMS Drafts",
+    subtitle: "Review before opening chat",
     prompt:
-      "Sharma ji ko SMS draft bana do ki kal shaam tak paise bhej dunga.",
+      "Rahul ko WhatsApp message bana do ki main 10 minute me pahunch raha hoon.",
   },
   {
-    icon: Code2,
+    icon: Wallet,
+    tint: colors.accent,
+    tintBg: colors.accentSoft,
+    tintBorder: colors.accentBorder,
+    title: "Track Hisaab & Bills",
+    subtitle: "Lena-dena & reminders",
+    prompt:
+      "Sharma ji ko 500 rupaye electricity bill ke dene hain, unki UPI ID sharma@okaxis bhi save kar lo.",
+  },
+  {
+    icon: IndianRupee,
     tint: colors.warning,
     tintBg: colors.warningBg,
     tintBorder: colors.warningBorder,
-    title: "Code, Docs & Tables",
-    subtitle: "Ask any technical topic",
-    prompt:
-      "Compare SQLite vs Room in a clean Markdown table with a TypeScript example.",
+    title: "1-Tap UPI Pay Card",
+    subtitle: "Strict verify before GPay/PhonePe",
+    prompt: "Sharma ji ko 500 rupaye electricity bill ke UPI kar do.",
   },
 ];
 
@@ -107,7 +105,7 @@ export function WelcomeView({
           How can I help today?
         </Text>
         <Text style={styles.subtext}>
-          Manage contacts, paise ka hisaab, calls & SMS, or dive into code and documents — all from one place.
+          Search your phonebook, place calls, send WhatsApp/SMS, pay via UPI, or manage hisaab & docs — all from chat.
         </Text>
       </View>
 

@@ -25,6 +25,16 @@ export interface ContactRecord {
   updatedAt: number;
 }
 
+export interface DeviceContactItem {
+  deviceId: string;
+  name: string;
+  primaryPhone: string;
+  phones: Array<{ label: string; number: string }>;
+  emails?: string[];
+  company?: string;
+  birthday?: string;
+}
+
 export interface MemoryRecord {
   id: string;
   contactId: string | null;
@@ -40,12 +50,25 @@ export interface MemoryRecord {
   updatedAt: number;
 }
 
+export type DeviceActionType =
+  | "call"
+  | "sms"
+  | "whatsapp"
+  | "upi"
+  | "save_device_contact";
+
 export interface PendingDeviceAction {
   id: string;
-  type: "call" | "sms";
+  type: DeviceActionType;
   contactName: string;
   phone: string;
   messageBody?: string;
+  upiId?: string;
+  amount?: number | null;
+  note?: string;
+  email?: string;
+  company?: string;
+  relationship?: string;
   reason?: string;
   status: "pending" | "confirmed" | "cancelled";
 }
@@ -124,4 +147,8 @@ export interface AppSettings {
   keyVerified: boolean;
 }
 
-export type ConnectionState = "checking" | "ready" | "missing_key" | "backend_offline";
+export type ConnectionState =
+  | "checking"
+  | "ready"
+  | "missing_key"
+  | "backend_offline";

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Linking,
   Modal,
@@ -16,10 +17,12 @@ import {
   ArrowDownLeft,
   ArrowLeft,
   ArrowUpRight,
+  BookUser,
   Cake,
   Check,
   ChevronRight,
   IndianRupee,
+  MessageCircle,
   MessageSquareText,
   Pencil,
   PhoneCall,
@@ -40,10 +43,16 @@ import {
   updateContactDirect,
   upsertContact,
 } from "../services/contactsDb";
+import {
+  formatWhatsAppPhone,
+  loadAllDeviceContacts,
+  normalizeDigits,
+} from "../services/deviceContacts";
 import { colors, getAvatarPalette } from "../theme/colors";
 import { useResponsive } from "../theme/responsive";
 import type {
   ContactRecord,
+  DeviceContactItem,
   MemoryCategory,
   MemoryDirection,
   MemoryRecord,
@@ -92,6 +101,12 @@ export function ContactsModal({
   const [mDirection, setMDirection] = useState<MemoryDirection>("payable");
   const [mDate, setMDate] = useState("");
 
+  // Device Phonebook Import Subview
+  const [showPhonebookImport, setShowPhonebookImport] = useState(false);
+  const [deviceContacts, setDeviceContacts] = useState<DeviceContactItem[]>([]);
+  const [phonebookQuery, setPhonebookQuery] = useState("");
+  const [loadingPhonebook, setLoadingPhonebook] = useState(false);
+
   const reloadData = useCallback(async () => {
     const [cList, mList] = await Promise.all([
       getAllContacts(),
@@ -110,6 +125,7 @@ export function ContactsModal({
     } else {
       setShowContactForm(false);
       setShowMemoryForm(false);
+      setShowPhonebookImport(false);
       setSelectedContact(null);
     }
   }, [visible, reloadData]);
@@ -275,6 +291,61 @@ export function ContactsModal({
     );
   }
 
+  async function openWhatsAppContact(contact: ContactRecord) {
+    if (!contact.phone.trim()) {
+      Alert.alert("No Phone Number", "Is contact ka phone number save nahi hai.");
+      return;
+    }
+    const waPhone = formatWhatsAppPhone(contact.phone);
+    const nativeUrl = `whatsapp://send?phone=${waPhone}`;
+    const webUrl = `https://wa.me/${waPhone}`;
+    try {
+      const canNative =
+        Platform.OS !== "web" && (await Linking.canOpenURL(nativeUrl));
+      await Linking.openURL(canNative ? nativeUrl : webUrl);
+    } catch {
+      void Linking.openURL(webUrl);
+    }
+  }
+
+  async function handleOpenPhonebookImport() {
+    if (Platform.OS === "web") {
+      Alert.alert(
+        "Mobile Only",
+        "Phonebook sync Android aur iOS app me kaam karta hai."
+      );
+      return;
+    }
+    setShowPhonebookImport(true);
+    setPhonebookQuery("");
+    setLoadingPhonebook(true);
+    try {
+      const res = await loadAllDeviceContacts(true);
+      if (res.permission !== "granted") {
+        Alert.alert(
+          "Permission Needed",
+          "Phone contacts padhne ke liye Contacts permission allow karein."
+        );
+        setShowPhonebookImport(false);
+        return;
+      }
+      setDeviceContacts(res.contacts.filter((c) => Boolean(c.primaryPhone)));
+    } finally {
+      setLoadingPhonebook(false);
+    }
+  }
+
+  async function handleImportDeviceContact(dc: DeviceContactItem) {
+    await upsertContact({
+      name: dc.name,
+      phone: dc.primaryPhone,
+      birthday: dc.birthday,
+      relationship: dc.company,
+    });
+    await reloadData();
+    onDataChanged?.();
+  }
+
   const qLower = query.trim().toLowerCase();
   const filteredContacts = contacts.filter((c) => {
     if (!qLower) return true;
@@ -314,10 +385,14 @@ export function ContactsModal({
       <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
         {/* Header */}
         <View style={[styles.header, { paddingHorizontal: horizontalPad }]}>
-          {selectedContact || showContactForm || showMemoryForm ? (
+          {selectedContact ||
+          showContactForm ||
+          showMemoryForm ||
+          showPhonebookImport ? (
             <Pressable
               onPress={() => {
-                if (showMemoryForm) setShowMemoryForm(false);
+                if (showPhonebookImport) setShowPhonebookImport(false);
+                else if (showMemoryForm) setShowMemoryForm(false);
                 else if (showContactForm) setShowContactForm(false);
                 else setSelectedContact(null);
               }}
@@ -333,7 +408,9 @@ export function ContactsModal({
 
           <View style={styles.headerCenter}>
             <Text style={styles.headerTitle} numberOfLines={1}>
-              {showContactForm
+              {showPhonebookImport
+                ? "Import from Phonebook"
+                : showContactForm
                 ? editingContact
                   ? "Edit Contact"
                   : "New Contact"
@@ -590,7 +667,7 @@ export function ContactsModal({
                       onPress={() => confirmCallContact(selectedContact)}
                       style={[styles.profileActionBtn, styles.callBtnTint]}
                     >
-                      <PhoneCall size={15} color={colors.sage} />
+                      <PhoneCall size={14} color={colors.sage} />
                       <Text
                         style={[
                           styles.profileActionText,
@@ -602,10 +679,22 @@ export function ContactsModal({
                     </Pressable>
 
                     <Pressable
+                      onPress={() => void openWhatsAppContact(selectedContact)}
+                      style={[styles.profileActionBtn, styles.waBtnTint]}
+                    >
+                      <MessageCircle size={14} color="#25D366" />
+                      <Text
+                        style={[styles.profileActionText, { color: "#25D366" }]}
+                      >
+                        WA
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
                       onPress={() => confirmSmsContact(selectedContact)}
                       style={[styles.profileActionBtn, styles.smsBtnTint]}
                     >
-                      <MessageSquareText size={15} color={colors.sky} />
+                      <MessageSquareText size={14} color={colors.sky} />
                       <Text
                         style={[styles.profileActionText, { color: colors.sky }]}
                       >
@@ -617,7 +706,7 @@ export function ContactsModal({
                       onPress={() => openEditContactForm(selectedContact)}
                       style={styles.profileActionBtn}
                     >
-                      <Pencil size={15} color={colors.textSecondary} />
+                      <Pencil size={14} color={colors.textSecondary} />
                       <Text style={styles.profileActionText}>Edit</Text>
                     </Pressable>
 
@@ -664,6 +753,126 @@ export function ContactsModal({
               ))
             )}
           </ScrollView>
+        ) : showPhonebookImport ? (
+          /* SUBVIEW 3B: IMPORT FROM DEVICE PHONEBOOK */
+          <View style={styles.flex}>
+            <View style={responsiveContainerStyle}>
+              <View style={[styles.searchBarRow, { marginTop: 14 }]}>
+                <View style={styles.searchInputWrap}>
+                  <Search size={15} color={colors.muted} />
+                  <TextInput
+                    value={phonebookQuery}
+                    onChangeText={setPhonebookQuery}
+                    placeholder="Search your phone contacts…"
+                    placeholderTextColor={colors.subtle}
+                    style={styles.searchInput}
+                  />
+                  {phonebookQuery ? (
+                    <Pressable onPress={() => setPhonebookQuery("")}>
+                      <X size={14} color={colors.muted} />
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+            </View>
+
+            {loadingPhonebook ? (
+              <View style={styles.loadingWrap}>
+                <ActivityIndicator size="small" color={colors.sky} />
+                <Text style={styles.emptyText}>Reading phone contacts…</Text>
+              </View>
+            ) : (
+              <ScrollView
+                style={styles.flex}
+                contentContainerStyle={[
+                  styles.listScroll,
+                  ...responsiveContainerStyle,
+                ]}
+                keyboardShouldPersistTaps="handled"
+              >
+                {(() => {
+                  const pq = phonebookQuery.trim().toLowerCase();
+                  const savedDigitsSet = new Set(
+                    contacts
+                      .map((c) => normalizeDigits(c.phone))
+                      .filter(Boolean)
+                  );
+                  const savedNamesSet = new Set(
+                    contacts.map((c) => c.name.trim().toLowerCase())
+                  );
+                  const list = deviceContacts
+                    .filter((dc) => {
+                      if (!pq) return true;
+                      return `${dc.name} ${dc.primaryPhone} ${dc.company || ""}`
+                        .toLowerCase()
+                        .includes(pq);
+                    })
+                    .slice(0, 120);
+
+                  if (list.length === 0) {
+                    return (
+                      <View style={styles.emptyCard}>
+                        <Text style={styles.emptyTitle}>
+                          No matching phone contacts
+                        </Text>
+                        <Text style={styles.emptyText}>
+                          Try searching another name or phone number.
+                        </Text>
+                      </View>
+                    );
+                  }
+
+                  return list.map((dc) => {
+                    const pal = getAvatarPalette(dc.name);
+                    const normPhone = normalizeDigits(dc.primaryPhone);
+                    const alreadySaved =
+                      (normPhone && savedDigitsSet.has(normPhone)) ||
+                      savedNamesSet.has(dc.name.trim().toLowerCase());
+
+                    return (
+                      <View key={dc.deviceId} style={styles.contactCard}>
+                        <View
+                          style={[
+                            styles.avatarSmall,
+                            { backgroundColor: pal.bg, borderColor: pal.border },
+                          ]}
+                        >
+                          <Text
+                            style={[styles.avatarSmallText, { color: pal.text }]}
+                          >
+                            {dc.name.charAt(0).toUpperCase()}
+                          </Text>
+                        </View>
+                        <View style={styles.contactCardBody}>
+                          <Text style={styles.contactCardName} numberOfLines={1}>
+                            {dc.name}
+                          </Text>
+                          <Text style={styles.contactCardSub} numberOfLines={1}>
+                            {dc.primaryPhone}
+                            {dc.company ? ` · ${dc.company}` : ""}
+                          </Text>
+                        </View>
+                        {alreadySaved ? (
+                          <View style={styles.importedBadge}>
+                            <Check size={12} color={colors.sage} />
+                            <Text style={styles.importedBadgeText}>Saved</Text>
+                          </View>
+                        ) : (
+                          <Pressable
+                            onPress={() => void handleImportDeviceContact(dc)}
+                            style={styles.importBtn}
+                          >
+                            <Plus size={13} color={colors.sky} />
+                            <Text style={styles.importBtnText}>Import</Text>
+                          </Pressable>
+                        )}
+                      </View>
+                    );
+                  });
+                })()}
+              </ScrollView>
+            )}
+          </View>
         ) : (
           /* SUBVIEW 4: MAIN DASHBOARD */
           <View style={styles.flex}>
@@ -724,6 +933,15 @@ export function ContactsModal({
                     </Pressable>
                   ) : null}
                 </View>
+
+                {tab === "contacts" && Platform.OS !== "web" ? (
+                  <Pressable
+                    onPress={() => void handleOpenPhonebookImport()}
+                    style={styles.phonebookBtn}
+                  >
+                    <BookUser size={15} color={colors.sky} />
+                  </Pressable>
+                ) : null}
 
                 <Pressable
                   onPress={() =>
@@ -1269,9 +1487,59 @@ const styles = StyleSheet.create({
     backgroundColor: colors.sageSoft,
     borderColor: colors.sageBorder,
   },
+  waBtnTint: {
+    backgroundColor: "rgba(37, 211, 102, 0.13)",
+    borderColor: "rgba(37, 211, 102, 0.34)",
+  },
   smsBtnTint: {
     backgroundColor: colors.skySoft,
     borderColor: colors.skyBorder,
+  },
+  phonebookBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: colors.skySoft,
+    borderWidth: 1,
+    borderColor: colors.skyBorder,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadingWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  importBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: colors.skySoft,
+    borderWidth: 1,
+    borderColor: colors.skyBorder,
+  },
+  importBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.sky,
+  },
+  importedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: colors.sageSoft,
+  },
+  importedBadgeText: {
+    fontSize: 11.5,
+    fontWeight: "700",
+    color: colors.sage,
   },
   profileDeleteBtn: {
     width: 40,

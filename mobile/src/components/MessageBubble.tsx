@@ -50,6 +50,7 @@ export function MessageBubble({
   onOpenImage,
   onOpenContacts,
   onUpdateAction,
+  onDataChanged,
   onRegenerate,
 }: {
   message: ChatMessage;
@@ -61,6 +62,7 @@ export function MessageBubble({
     actionId: string,
     patch: Partial<PendingDeviceAction>
   ) => void;
+  onDataChanged?: () => void;
   onRegenerate?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -238,13 +240,14 @@ export function MessageBubble({
           />
         ) : null}
 
-        {/* Interactive Call / SMS Confirmation Cards */}
+        {/* Interactive Device Action Confirmation Cards */}
         {message.pendingActions && message.pendingActions.length > 0 ? (
           <View style={styles.actionsList}>
             {message.pendingActions.map((act) => (
               <ActionConfirmCard
                 key={act.id}
                 action={act}
+                onDataChanged={onDataChanged}
                 onUpdateAction={(actionId, patch) =>
                   onUpdateAction?.(message.id, actionId, patch)
                 }

@@ -12,6 +12,7 @@ import {
   searchContactsAndMemories,
   upsertContact,
 } from "./contactsDb";
+import { searchDeviceContacts } from "./deviceContacts";
 
 function makeActionId(): string {
   return `act_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
@@ -20,9 +21,13 @@ function makeActionId(): string {
 export function describeToolActivity(toolName: string): string {
   switch (toolName) {
     case "search_contacts_and_memories":
-      return "Checking contacts & memories…";
+      return "Searching vault & phonebook…";
+    case "search_device_phonebook":
+      return "Searching phone contacts…";
     case "save_or_update_contact":
-      return "Saving contact locally…";
+      return "Saving contact to vault…";
+    case "prepare_device_contact_save":
+      return "Preparing phonebook contact…";
     case "save_memory_or_hisaab":
       return "Saving memory to SQLite…";
     case "update_memory_status":
@@ -33,6 +38,10 @@ export function describeToolActivity(toolName: string): string {
       return "Preparing call confirmation…";
     case "prepare_sms_draft":
       return "Preparing SMS draft…";
+    case "prepare_whatsapp_message":
+      return "Preparing WhatsApp message…";
+    case "prepare_upi_payment":
+      return "Preparing UPI payment card…";
     default:
       return "Running tool…";
   }
@@ -60,11 +69,74 @@ export async function executeClientToolCalls(
           const query = typeof args.query === "string" ? args.query : "";
           const category =
             typeof args.category === "string" ? args.category : "all";
-          const searchResult = await searchContactsAndMemories(query, category);
+          const includeDevice = args.includeDeviceContacts !== false;
+
+          const [vaultResult, deviceResult] = await Promise.all([
+            searchContactsAndMemories(query, category),
+            includeDevice
+              ? searchDeviceContacts(query, 15)
+              : Promise.resolve(null),
+          ]);
+
+          if (deviceResult && deviceResult.matches.length > 0 && query.trim()) {
+            badges.push({
+              id: makeActionId(),
+              kind: "search",
+              label: `Phonebook: ${deviceResult.matches.length} match${deviceResult.matches.length > 1 ? "es" : ""} found`,
+            });
+          }
 
           toolOutputs.push({
             toolCallId: call.id,
-            outputJson: JSON.stringify(searchResult),
+            outputJson: JSON.stringify({
+              ...vaultResult,
+              deviceContactsPermission: deviceResult?.permission ?? "skipped",
+              totalDeviceContacts: deviceResult?.totalDeviceContacts ?? 0,
+              deviceContacts: deviceResult
+                ? deviceResult.matches.map((dc) => ({
+                    source: "device_phonebook",
+                    deviceId: dc.deviceId,
+                    name: dc.name,
+                    primaryPhone: dc.primaryPhone || null,
+                    phones: dc.phones,
+                    emails: dc.emails,
+                    company: dc.company,
+                    birthday: dc.birthday,
+                  }))
+                : [],
+            }),
+          });
+          break;
+        }
+
+        case "search_device_phonebook": {
+          const query = typeof args.query === "string" ? args.query : "";
+          const limit =
+            typeof args.limit === "number" && !Number.isNaN(args.limit)
+              ? args.limit
+              : 20;
+
+          const deviceResult = await searchDeviceContacts(query, limit);
+
+          if (deviceResult.permission === "granted") {
+            badges.push({
+              id: makeActionId(),
+              kind: "search",
+              label: `Phonebook searched (${deviceResult.matches.length} found)`,
+            });
+          }
+
+          toolOutputs.push({
+            toolCallId: call.id,
+            outputJson: JSON.stringify({
+              permission: deviceResult.permission,
+              totalDeviceContacts: deviceResult.totalDeviceContacts,
+              matches: deviceResult.matches,
+              note:
+                deviceResult.permission === "denied"
+                  ? "Contacts permission was denied by the user. Politely ask them to enable Contacts access in phone Settings."
+                  : undefined,
+            }),
           });
           break;
         }
@@ -97,6 +169,59 @@ export async function executeClientToolCalls(
               success: true,
               created,
               contact,
+            }),
+          });
+          break;
+        }
+
+        case "prepare_device_contact_save": {
+          const contactName =
+            typeof args.contactName === "string"
+              ? args.contactName.trim()
+              : "";
+          const phone =
+            typeof args.phone === "string" ? args.phone.trim() : "";
+
+          if (!contactName || !phone) {
+            toolOutputs.push({
+              toolCallId: call.id,
+              outputJson: JSON.stringify({
+                success: false,
+                error:
+                  "Both contactName and phone are required to save a phonebook contact.",
+              }),
+            });
+            break;
+          }
+
+          const actionCard: PendingDeviceAction = {
+            id: makeActionId(),
+            type: "save_device_contact",
+            contactName,
+            phone,
+            email:
+              typeof args.email === "string" ? args.email.trim() : undefined,
+            company:
+              typeof args.company === "string"
+                ? args.company.trim()
+                : undefined,
+            relationship:
+              typeof args.relationship === "string"
+                ? args.relationship.trim()
+                : undefined,
+            note:
+              typeof args.notes === "string" ? args.notes.trim() : undefined,
+            status: "pending",
+          };
+          pendingActions.push(actionCard);
+
+          toolOutputs.push({
+            toolCallId: call.id,
+            outputJson: JSON.stringify({
+              status: "awaiting_user_confirmation",
+              contactName,
+              phone,
+              note: "A Save to Phonebook confirmation card is now displayed on screen. Ask the user to tap Save to Phonebook.",
             }),
           });
           break;
@@ -167,7 +292,8 @@ export async function executeClientToolCalls(
         case "update_memory_status": {
           const memoryId =
             typeof args.memoryId === "string" ? args.memoryId : "";
-          const rawAct = typeof args.action === "string" ? args.action : "settle";
+          const rawAct =
+            typeof args.action === "string" ? args.action : "settle";
           const action: "settle" | "update" | "delete" =
             rawAct === "update" || rawAct === "delete" ? rawAct : "settle";
 
@@ -220,7 +346,9 @@ export async function executeClientToolCalls(
 
         case "prepare_phone_call": {
           const contactName =
-            typeof args.contactName === "string" ? args.contactName.trim() : "Contact";
+            typeof args.contactName === "string"
+              ? args.contactName.trim()
+              : "Contact";
           const phone =
             typeof args.phone === "string" ? args.phone.trim() : "";
 
@@ -229,7 +357,8 @@ export async function executeClientToolCalls(
               toolCallId: call.id,
               outputJson: JSON.stringify({
                 success: false,
-                error: "Phone number is empty. Ask the user for their phone number first.",
+                error:
+                  "Phone number is empty. Search contacts/phonebook first or ask the user for their phone number.",
               }),
             });
             break;
@@ -259,7 +388,9 @@ export async function executeClientToolCalls(
 
         case "prepare_sms_draft": {
           const contactName =
-            typeof args.contactName === "string" ? args.contactName.trim() : "Contact";
+            typeof args.contactName === "string"
+              ? args.contactName.trim()
+              : "Contact";
           const phone =
             typeof args.phone === "string" ? args.phone.trim() : "";
           const messageBody =
@@ -270,7 +401,8 @@ export async function executeClientToolCalls(
               toolCallId: call.id,
               outputJson: JSON.stringify({
                 success: false,
-                error: "Phone number is empty. Ask the user for the recipient's phone number first.",
+                error:
+                  "Phone number is empty. Search contacts/phonebook first or ask the user for the recipient's phone number.",
               }),
             });
             break;
@@ -293,7 +425,105 @@ export async function executeClientToolCalls(
               contactName,
               phone,
               draftedMessage: messageBody,
-              note: "An interactive SMS Draft Confirmation card is now displayed on screen. Ask the user to review and tap Confirm & Send SMS.",
+              note: "An interactive SMS Draft Confirmation card is now displayed on screen. Ask the user to review and tap Confirm & Open SMS.",
+            }),
+          });
+          break;
+        }
+
+        case "prepare_whatsapp_message": {
+          const contactName =
+            typeof args.contactName === "string"
+              ? args.contactName.trim()
+              : "Contact";
+          const phone =
+            typeof args.phone === "string" ? args.phone.trim() : "";
+          const messageBody =
+            typeof args.messageBody === "string" ? args.messageBody.trim() : "";
+
+          if (!phone) {
+            toolOutputs.push({
+              toolCallId: call.id,
+              outputJson: JSON.stringify({
+                success: false,
+                error:
+                  "Phone number is empty. Search contacts/phonebook first or ask the user for the recipient's WhatsApp number.",
+              }),
+            });
+            break;
+          }
+
+          const actionCard: PendingDeviceAction = {
+            id: makeActionId(),
+            type: "whatsapp",
+            contactName,
+            phone,
+            messageBody,
+            status: "pending",
+          };
+          pendingActions.push(actionCard);
+
+          toolOutputs.push({
+            toolCallId: call.id,
+            outputJson: JSON.stringify({
+              status: "awaiting_user_confirmation",
+              contactName,
+              phone,
+              draftedMessage: messageBody,
+              note: "An interactive WhatsApp Confirmation card is now displayed on screen. Ask the user to review the message and tap Open WhatsApp.",
+            }),
+          });
+          break;
+        }
+
+        case "prepare_upi_payment": {
+          const contactName =
+            typeof args.contactName === "string"
+              ? args.contactName.trim()
+              : "Payee";
+          const upiId =
+            typeof args.upiId === "string" ? args.upiId.trim() : "";
+          const amount =
+            typeof args.amount === "number" && !Number.isNaN(args.amount)
+              ? args.amount
+              : typeof args.amount === "string" && args.amount.trim()
+              ? Number(args.amount)
+              : null;
+          const note =
+            typeof args.note === "string" ? args.note.trim() : undefined;
+
+          if (!upiId || !upiId.includes("@")) {
+            toolOutputs.push({
+              toolCallId: call.id,
+              outputJson: JSON.stringify({
+                success: false,
+                error:
+                  "A valid UPI ID containing '@' (like name@okicici or 9876543210@ybl) is required. Ask the user for the recipient's UPI ID.",
+              }),
+            });
+            break;
+          }
+
+          const actionCard: PendingDeviceAction = {
+            id: makeActionId(),
+            type: "upi",
+            contactName,
+            phone: "",
+            upiId,
+            amount,
+            note,
+            status: "pending",
+          };
+          pendingActions.push(actionCard);
+
+          toolOutputs.push({
+            toolCallId: call.id,
+            outputJson: JSON.stringify({
+              status: "awaiting_user_confirmation",
+              contactName,
+              upiId,
+              amount,
+              note: "A strict UPI Payment confirmation card is now displayed on screen. Ask the user to verify the UPI ID & amount and tap Pay via UPI App.",
             }),
           });
           break;

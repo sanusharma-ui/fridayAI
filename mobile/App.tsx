@@ -678,10 +678,17 @@ function FridayWorkspace() {
 
       if (!rawReceivedContent.trim() && collectedActions.length > 0) {
         const firstAct = collectedActions[0];
-        rawReceivedContent =
-          firstAct.type === "call"
-            ? `Maine **${firstAct.contactName}** ke liye call card ready kar diya hai. Dial karne ke liye neeche **Confirm Call** tap karein.`
-            : `Maine **${firstAct.contactName}** ke liye SMS draft tayyar kar diya hai. Review karke **Confirm & Open SMS** tap karein.`;
+        if (firstAct.type === "call") {
+          rawReceivedContent = `Maine **${firstAct.contactName}** ke liye call card ready kar diya hai. Dial karne ke liye neeche **Confirm Call** tap karein.`;
+        } else if (firstAct.type === "whatsapp") {
+          rawReceivedContent = `Maine **${firstAct.contactName}** ke liye WhatsApp message ready kar diya hai. Review karke **Open WhatsApp** tap karein.`;
+        } else if (firstAct.type === "upi") {
+          rawReceivedContent = `Maine **${firstAct.contactName}** (${firstAct.upiId}) ke liye UPI payment card ready kar diya hai. Details verify karke proceed karein.`;
+        } else if (firstAct.type === "save_device_contact") {
+          rawReceivedContent = `**${firstAct.contactName}** ko phonebook me save karne ke liye neeche **Save to Phonebook** tap karein.`;
+        } else {
+          rawReceivedContent = `Maine **${firstAct.contactName}** ke liye SMS draft tayyar kar diya hai. Review karke **Confirm & Open SMS** tap karein.`;
+        }
       }
 
       allRoundsFinished = true;
@@ -852,6 +859,7 @@ function FridayWorkspace() {
                     onOpenImage={(att) => setPreviewImage(att)}
                     onOpenContacts={() => setContactsOpen(true)}
                     onUpdateAction={handleUpdateMessageAction}
+                    onDataChanged={() => void refreshContactsSummary()}
                     onRegenerate={
                       lastUserMsg && !isStreamingAny
                         ? () =>

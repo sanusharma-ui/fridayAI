@@ -4,19 +4,47 @@ export const FRIDAY_TOOLS = [
     function: {
       name: "search_contacts_and_memories",
       description:
-        "Search the user's local SQLite database for saved contacts, phone numbers, birthdays, pending bills, money balances/udhaar/hisaab (payable or receivable), notes, and custom details. ALWAYS call this first when the user asks about any person, wants to call or SMS someone (to find their phone number), asks about birthdays/dues/bills/notes, or before updating/settling existing info. Leave query empty to list all contacts and active records.",
+        "Search BOTH Friday's local SQLite Vault AND the user's real Device Phonebook (Android/iOS Contacts) for contacts, phone numbers, UPI IDs, birthdays, pending bills, money balances/udhaar/hisaab (payable or receivable), notes, and custom details. ALWAYS call this first whenever the user mentions any person/relation (e.g. 'Mummy ko call laga', 'Rahul ko WhatsApp kar', 'Sharma ji ko UPI kar'), asks about birthdays/dues/bills/notes, or before updating/settling existing info. Leave query empty to list saved contacts and active records.",
       parameters: {
         type: "object",
         properties: {
           query: {
             type: "string",
             description:
-              "Name, relationship (e.g. Mummy, Papa, Sharma ji, Rahul), phone digits, or keyword (e.g. birthday, bill, udhaar, rent). Use empty string '' to list all.",
+              "Name, relationship (e.g. Mummy, Papa, Sharma ji, Rahul), phone digits, or keyword (e.g. birthday, bill, udhaar, upi, rent). Use empty string '' to list all.",
           },
           category: {
             type: "string",
             description:
               "Optional category filter: 'all', 'ledger', 'bill', 'birthday', 'note', or 'custom'. Defaults to 'all'.",
+          },
+          includeDeviceContacts: {
+            type: "boolean",
+            description:
+              "Whether to also search the phone's native Contact Book (expo-contacts) when looking up people or numbers. Defaults to true.",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_device_phonebook",
+      description:
+        "Search directly inside the user's real Android/iOS Phone Contact Book for names, multiple phone numbers, emails, or company/job info. Useful when the user asks to search their phone contacts specifically (e.g. 'Mere phone me kitne Sharma save hain?', 'Electrician ka number phonebook me dekho').",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description:
+              "Name, partial name, relationship alias (e.g. Mom, Mummy, Papa, Dad), or phone digits to search in device contacts. Leave empty to list top device contacts.",
+          },
+          limit: {
+            type: "number",
+            description: "Max contacts to return (default 20, max 50).",
           },
         },
         required: [],
@@ -28,14 +56,14 @@ export const FRIDAY_TOOLS = [
     function: {
       name: "save_or_update_contact",
       description:
-        "Create a new contact or update an existing contact's core profile (name, phone number, relationship/tag, birthday, general notes) in the local database.",
+        "Create a new contact or update an existing contact's profile (name, phone number, relationship/tag, birthday, general notes/UPI ID) in Friday's local SQLite Vault.",
       parameters: {
         type: "object",
         properties: {
           contactId: {
             type: "string",
             description:
-              "Existing contact ID returned by search_contacts_and_memories if updating a known contact. Omit if creating new or matching by name.",
+              "Existing SQLite contact ID (starts with 'cnt_') returned by search_contacts_and_memories if updating a known vault contact. Omit if creating new or matching by name.",
           },
           name: {
             type: "string",
@@ -57,7 +85,8 @@ export const FRIDAY_TOOLS = [
           },
           notes: {
             type: "string",
-            description: "Optional general note about this person.",
+            description:
+              "Optional general note or UPI ID about this person.",
           },
         },
         required: ["name"],
@@ -67,15 +96,54 @@ export const FRIDAY_TOOLS = [
   {
     type: "function",
     function: {
+      name: "prepare_device_contact_save",
+      description:
+        "Prepare a confirmation card to save a new contact directly into the user's real Android/iOS System Phonebook (and sync to Friday Vault). Use this when the user wants a number saved into their actual phone contacts (e.g. 'Phonebook me save kar lo', 'Phone contacts me add kar do').",
+      parameters: {
+        type: "object",
+        properties: {
+          contactName: {
+            type: "string",
+            description: "Full name to save in the phonebook.",
+          },
+          phone: {
+            type: "string",
+            description: "Phone number to save.",
+          },
+          email: {
+            type: "string",
+            description: "Optional email address.",
+          },
+          company: {
+            type: "string",
+            description: "Optional company, shop, or role label.",
+          },
+          relationship: {
+            type: "string",
+            description: "Optional relationship tag for Friday Vault.",
+          },
+          notes: {
+            type: "string",
+            description: "Optional note to attach.",
+          },
+        },
+        required: ["contactName", "phone"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "save_memory_or_hisaab",
       description:
-        "Save any extra detail, money transaction/hisaab (udhaar, lena-dena, split), pending bill, birthday/important date, note, or custom attribute for a contact (or as a general personal memory if no contact applies). Automatically creates the contact if contactName does not exist yet.",
+        "Save any extra detail, money transaction/hisaab (udhaar, lena-dena, split), pending bill, birthday/important date, UPI ID, note, or custom attribute for a contact (or as a general personal memory if no contact applies). Automatically creates the contact in SQLite if contactName does not exist yet.",
       parameters: {
         type: "object",
         properties: {
           contactId: {
             type: "string",
-            description: "Optional contact ID if already found via search.",
+            description:
+              "Optional SQLite contact ID ('cnt_...') if already found via search.",
           },
           contactName: {
             type: "string",
@@ -96,7 +164,7 @@ export const FRIDAY_TOOLS = [
           detail: {
             type: "string",
             description:
-              "Clear description of what to remember (e.g. 'Sharma ji ko 500 rupaye dene hain', '14 May').",
+              "Clear description of what to remember (e.g. 'Sharma ji ko 500 rupaye dene hain', 'sharma@okaxis', '14 May').",
           },
           amount: {
             type: "number",
@@ -157,13 +225,13 @@ export const FRIDAY_TOOLS = [
     function: {
       name: "delete_contact",
       description:
-        "Delete a contact from the local database ONLY when the user explicitly requests deleting that contact.",
+        "Delete a contact from Friday's local SQLite database ONLY when the user explicitly requests deleting that contact.",
       parameters: {
         type: "object",
         properties: {
           contactId: {
             type: "string",
-            description: "ID of the contact to delete.",
+            description: "SQLite ID ('cnt_...') of the contact to delete.",
           },
         },
         required: ["contactId"],
@@ -175,7 +243,7 @@ export const FRIDAY_TOOLS = [
     function: {
       name: "prepare_phone_call",
       description:
-        "Prepare a Phone Call confirmation card on the user's Android screen. Search contacts first if the phone number isn't explicitly provided in the message. Note: this creates a confirmation prompt; the call dials only after the user taps Confirm.",
+        "Prepare a Phone Call confirmation card on the user's screen. Search contacts (vault + device phonebook) first if the phone number isn't explicitly provided in the message. Note: the call dials only after the user taps Confirm.",
       parameters: {
         type: "object",
         properties: {
@@ -220,6 +288,67 @@ export const FRIDAY_TOOLS = [
           },
         },
         required: ["contactName", "phone", "messageBody"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "prepare_whatsapp_message",
+      description:
+        "Prepare an interactive WhatsApp Message confirmation card so the user can review/edit the message and open the person's WhatsApp chat directly in 1 tap. Search contacts (vault + phonebook) first to get their phone number if not provided. Ideal for Hinglish/Hindi messages, udhaar reminders, greetings, or quick updates.",
+      parameters: {
+        type: "object",
+        properties: {
+          contactName: {
+            type: "string",
+            description: "Recipient's display name.",
+          },
+          phone: {
+            type: "string",
+            description:
+              "Recipient's phone number (10-digit Indian mobile numbers automatically get +91 formatting).",
+          },
+          messageBody: {
+            type: "string",
+            description:
+              "Natural, friendly WhatsApp message text matching the user's tone and request.",
+          },
+        },
+        required: ["contactName", "phone", "messageBody"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "prepare_upi_payment",
+      description:
+        "Prepare a strict UPI Payment confirmation card (GPay / PhonePe / Paytm / BHIM) using a recipient's UPI ID (VPA like 'name@okicici', '9876543210@ybl'). Search contacts & memories first to check if a UPI ID is saved for that person. If no UPI ID is known, ask the user for the recipient's UPI ID first!",
+      parameters: {
+        type: "object",
+        properties: {
+          contactName: {
+            type: "string",
+            description: "Payee display name (e.g. 'Sharma ji', 'Rahul').",
+          },
+          upiId: {
+            type: "string",
+            description:
+              "Valid UPI VPA / ID containing '@' (e.g. 'rahul@okaxis', '9876543210@paytm').",
+          },
+          amount: {
+            type: "number",
+            description:
+              "Amount in INR (₹) to pay. Optional if user wants to enter amount inside the UPI app.",
+          },
+          note: {
+            type: "string",
+            description:
+              "Short payment note / remarks (e.g. 'Electricity Bill', 'Dinner split').",
+          },
+        },
+        required: ["contactName", "upiId"],
       },
     },
   },

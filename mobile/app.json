@@ -13,11 +13,23 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.friday.assistant",
       "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "Allow Friday to attach images from your photo library for visual analysis."
+        "NSPhotoLibraryUsageDescription": "Allow Friday to attach images from your photo library for visual analysis.",
+        "NSContactsUsageDescription": "Allow Friday to search and save contacts in your phonebook.",
+        "LSApplicationQueriesSchemes": [
+          "whatsapp",
+          "upi",
+          "gpay",
+          "phonepe",
+          "paytmmp"
+        ]
       }
     },
     "android": {
       "package": "com.friday.assistant",
+      "permissions": [
+        "android.permission.READ_CONTACTS",
+        "android.permission.WRITE_CONTACTS"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#141615"
       }
@@ -25,6 +37,12 @@
     "plugins": [
       "expo-secure-store",
       "expo-sqlite",
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow Friday to search and save contacts in your phonebook."
+        }
+      ],
       [
         "expo-image-picker",
         {

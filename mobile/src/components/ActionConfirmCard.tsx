@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Linking,
   Platform,
@@ -9,7 +10,21 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Check, MessageSquareText, PhoneCall, X } from "lucide-react-native";
+import {
+  Check,
+  IndianRupee,
+  MessageCircle,
+  MessageSquareText,
+  PhoneCall,
+  ShieldCheck,
+  UserPlus,
+  X,
+} from "lucide-react-native";
+import { upsertContact } from "../services/contactsDb";
+import {
+  formatWhatsAppPhone,
+  saveContactToDevicePhonebook,
+} from "../services/deviceContacts";
 import { colors } from "../theme/colors";
 import type { PendingDeviceAction } from "../types";
 
@@ -19,7 +34,12 @@ interface ActionConfirmCardProps {
     actionId: string,
     patch: Partial<PendingDeviceAction>
   ) => void;
+  onDataChanged?: () => void;
 }
+
+const WHATSAPP_GREEN = "#25D366";
+const WHATSAPP_SOFT = "rgba(37, 211, 102, 0.14)";
+const WHATSAPP_BORDER = "rgba(37, 211, 102, 0.36)";
 
 function sanitizePhoneForUri(phone: string): string {
   return phone.replace(/[^\d+]/g, "");
@@ -28,10 +48,27 @@ function sanitizePhoneForUri(phone: string): string {
 export function ActionConfirmCard({
   action,
   onUpdateAction,
+  onDataChanged,
 }: ActionConfirmCardProps) {
-  const [smsBody, setSmsBody] = useState(action.messageBody || "");
+  const [draftBody, setDraftBody] = useState(action.messageBody || "");
+  const [upiAmountText, setUpiAmountText] = useState(
+    typeof action.amount === "number" && action.amount > 0
+      ? String(action.amount)
+      : ""
+  );
+  const [upiNoteText, setUpiNoteText] = useState(action.note || "");
+  const [contactNameText, setContactNameText] = useState(
+    action.contactName || ""
+  );
+  const [contactPhoneText, setContactPhoneText] = useState(action.phone || "");
+  const [busy, setBusy] = useState(false);
+
   const isPending = action.status === "pending";
   const isConfirmed = action.status === "confirmed";
+
+  function handleCancel() {
+    onUpdateAction(action.id, { status: "cancelled" });
+  }
 
   async function handleConfirmCall() {
     const cleanPhone = sanitizePhoneForUri(action.phone);
@@ -59,14 +96,14 @@ export function ActionConfirmCard({
     }
 
     const separator = Platform.OS === "ios" ? "&" : "?";
-    const encodedBody = encodeURIComponent(smsBody.trim());
+    const encodedBody = encodeURIComponent(draftBody.trim());
     const smsUrl = `sms:${cleanPhone}${separator}body=${encodedBody}`;
 
     try {
       await Linking.openURL(smsUrl);
       onUpdateAction(action.id, {
         status: "confirmed",
-        messageBody: smsBody.trim(),
+        messageBody: draftBody.trim(),
       });
     } catch {
       Alert.alert(
@@ -76,10 +113,135 @@ export function ActionConfirmCard({
     }
   }
 
-  function handleCancel() {
-    onUpdateAction(action.id, { status: "cancelled" });
+  async function handleConfirmWhatsApp() {
+    const waPhone = formatWhatsAppPhone(action.phone);
+    if (!waPhone) {
+      Alert.alert("Invalid Number", "Recipient WhatsApp number is invalid.");
+      return;
+    }
+
+    const cleanMessage = draftBody.trim();
+    const encodedText = encodeURIComponent(cleanMessage);
+    const nativeUrl = `whatsapp://send?phone=${waPhone}&text=${encodedText}`;
+    const webFallbackUrl = `https://wa.me/${waPhone}?text=${encodedText}`;
+
+    try {
+      const canOpenNative =
+        Platform.OS !== "web" && (await Linking.canOpenURL(nativeUrl));
+      await Linking.openURL(canOpenNative ? nativeUrl : webFallbackUrl);
+      onUpdateAction(action.id, {
+        status: "confirmed",
+        messageBody: cleanMessage,
+      });
+    } catch {
+      try {
+        await Linking.openURL(webFallbackUrl);
+        onUpdateAction(action.id, {
+          status: "confirmed",
+          messageBody: cleanMessage,
+        });
+      } catch {
+        Alert.alert(
+          "Could Not Open WhatsApp",
+          "WhatsApp could not be launched on this device."
+        );
+      }
+    }
   }
 
+  async function handleConfirmUpi() {
+    const cleanUpi = (action.upiId || "").trim();
+    if (!cleanUpi || !cleanUpi.includes("@")) {
+      Alert.alert("Invalid UPI ID", "Please check the recipient's UPI ID.");
+      return;
+    }
+
+    const parsedAmount = upiAmountText.trim()
+      ? Number(upiAmountText.trim())
+      : null;
+    if (
+      upiAmountText.trim() &&
+      (parsedAmount === null || Number.isNaN(parsedAmount) || parsedAmount <= 0)
+    ) {
+      Alert.alert("Invalid Amount", "Enter a valid positive amount in ₹.");
+      return;
+    }
+
+    const params: string[] = [
+      `pa=${encodeURIComponent(cleanUpi)}`,
+      `pn=${encodeURIComponent(action.contactName || "Payee")}`,
+      "cu=INR",
+    ];
+    if (parsedAmount && parsedAmount > 0) {
+      params.push(`am=${encodeURIComponent(parsedAmount.toFixed(2))}`);
+    }
+    if (upiNoteText.trim()) {
+      params.push(`tn=${encodeURIComponent(upiNoteText.trim())}`);
+    }
+
+    const upiUrl = `upi://pay?${params.join("&")}`;
+
+    try {
+      await Linking.openURL(upiUrl);
+      onUpdateAction(action.id, {
+        status: "confirmed",
+        amount: parsedAmount,
+        note: upiNoteText.trim(),
+      });
+    } catch {
+      Alert.alert(
+        "No UPI App Found",
+        "Unable to launch GPay, PhonePe, Paytm, or BHIM on this device."
+      );
+    }
+  }
+
+  async function handleConfirmSaveDeviceContact() {
+    const cleanName = contactNameText.trim();
+    const cleanPhone = contactPhoneText.trim();
+    if (!cleanName || !cleanPhone) {
+      Alert.alert("Missing Info", "Both name and phone number are required.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const res = await saveContactToDevicePhonebook({
+        name: cleanName,
+        phone: cleanPhone,
+        email: action.email,
+        company: action.company,
+        notes: action.note,
+      });
+
+      if (!res.ok) {
+        Alert.alert(
+          "Could Not Save Contact",
+          res.error || "Unable to write to phone contacts."
+        );
+        return;
+      }
+
+      // Also sync into Friday's SQLite Vault so memories & hisaab link cleanly!
+      await upsertContact({
+        name: cleanName,
+        phone: cleanPhone,
+        relationship: action.relationship,
+        notes: action.note,
+      });
+
+      onDataChanged?.();
+      onUpdateAction(action.id, {
+        status: "confirmed",
+        contactName: cleanName,
+        phone: cleanPhone,
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 1. PHONE CALL CARD
   if (action.type === "call") {
     return (
       <View
@@ -145,6 +307,300 @@ export function ActionConfirmCard({
     );
   }
 
+  // 2. WHATSAPP MESSAGE CARD
+  if (action.type === "whatsapp") {
+    return (
+      <View
+        style={[
+          styles.card,
+          styles.waBorder,
+          action.status === "cancelled" && styles.cardCancelled,
+        ]}
+      >
+        <View style={styles.headerRow}>
+          <View style={styles.waIconWrap}>
+            <MessageCircle size={18} color={WHATSAPP_GREEN} />
+          </View>
+          <View style={styles.headerTextWrap}>
+            <Text style={styles.waTag}>WhatsApp Message</Text>
+            <Text style={styles.contactTitle}>{action.contactName}</Text>
+            <Text style={styles.phoneText}>{action.phone}</Text>
+          </View>
+        </View>
+
+        {isPending ? (
+          <>
+            <TextInput
+              value={draftBody}
+              onChangeText={setDraftBody}
+              multiline
+              style={styles.smsInput}
+              placeholder="Edit WhatsApp message before opening…"
+              placeholderTextColor={colors.subtle}
+            />
+            <View style={styles.btnRow}>
+              <Pressable
+                onPress={handleConfirmWhatsApp}
+                style={({ pressed }) => [
+                  styles.waConfirmBtn,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <MessageCircle size={15} color="#052310" />
+                <Text style={styles.waConfirmText}>Open WhatsApp</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={handleCancel}
+                style={({ pressed }) => [
+                  styles.cancelBtn,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <X size={15} color={colors.muted} />
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </Pressable>
+            </View>
+          </>
+        ) : (
+          <>
+            <View style={styles.readonlyDraftBox}>
+              <Text style={styles.readonlyDraftText}>
+                {action.messageBody || draftBody}
+              </Text>
+            </View>
+            <View style={styles.statusFooter}>
+              {isConfirmed ? (
+                <>
+                  <Check size={14} color={WHATSAPP_GREEN} />
+                  <Text
+                    style={[styles.statusFooterText, { color: WHATSAPP_GREEN }]}
+                  >
+                    Opened in WhatsApp
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <X size={14} color={colors.muted} />
+                  <Text style={styles.statusFooterText}>
+                    WhatsApp draft cancelled
+                  </Text>
+                </>
+              )}
+            </View>
+          </>
+        )}
+      </View>
+    );
+  }
+
+  // 3. UPI PAYMENT CARD (Strict Confirm)
+  if (action.type === "upi") {
+    return (
+      <View
+        style={[
+          styles.card,
+          styles.upiBorder,
+          action.status === "cancelled" && styles.cardCancelled,
+        ]}
+      >
+        <View style={styles.headerRow}>
+          <View style={styles.upiIconWrap}>
+            <IndianRupee size={18} color={colors.warning} />
+          </View>
+          <View style={styles.headerTextWrap}>
+            <View style={styles.strictTagRow}>
+              <ShieldCheck size={12} color={colors.warning} />
+              <Text style={styles.upiTag}>UPI Payment · Verify Details</Text>
+            </View>
+            <Text style={styles.contactTitle}>{action.contactName}</Text>
+            <Text style={styles.upiVpaText}>{action.upiId}</Text>
+          </View>
+        </View>
+
+        {isPending ? (
+          <>
+            <View style={styles.upiInputsRow}>
+              <View style={styles.upiAmountField}>
+                <Text style={styles.fieldLabel}>Amount (₹)</Text>
+                <TextInput
+                  value={upiAmountText}
+                  onChangeText={setUpiAmountText}
+                  keyboardType="decimal-pad"
+                  placeholder="Optional"
+                  placeholderTextColor={colors.subtle}
+                  style={styles.compactInput}
+                />
+              </View>
+              <View style={styles.upiNoteField}>
+                <Text style={styles.fieldLabel}>Note</Text>
+                <TextInput
+                  value={upiNoteText}
+                  onChangeText={setUpiNoteText}
+                  placeholder="Remarks (optional)"
+                  placeholderTextColor={colors.subtle}
+                  style={styles.compactInput}
+                />
+              </View>
+            </View>
+
+            <View style={styles.btnRow}>
+              <Pressable
+                onPress={handleConfirmUpi}
+                style={({ pressed }) => [
+                  styles.upiConfirmBtn,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <IndianRupee size={15} color="#231503" />
+                <Text style={styles.upiConfirmText}>
+                  {upiAmountText.trim()
+                    ? `Pay ₹${upiAmountText.trim()} via UPI`
+                    : "Open UPI App"}
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={handleCancel}
+                style={({ pressed }) => [
+                  styles.cancelBtn,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <X size={15} color={colors.muted} />
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </Pressable>
+            </View>
+          </>
+        ) : (
+          <View style={styles.statusFooter}>
+            {isConfirmed ? (
+              <>
+                <Check size={14} color={colors.warning} />
+                <Text
+                  style={[styles.statusFooterText, { color: colors.warning }]}
+                >
+                  Opened in UPI Payment App
+                  {action.amount ? ` (₹${action.amount})` : ""}
+                </Text>
+              </>
+            ) : (
+              <>
+                <X size={14} color={colors.muted} />
+                <Text style={styles.statusFooterText}>UPI payment cancelled</Text>
+              </>
+            )}
+          </View>
+        )}
+      </View>
+    );
+  }
+
+  // 4. SAVE TO DEVICE PHONEBOOK CARD
+  if (action.type === "save_device_contact") {
+    return (
+      <View
+        style={[
+          styles.card,
+          styles.contactBorder,
+          action.status === "cancelled" && styles.cardCancelled,
+        ]}
+      >
+        <View style={styles.headerRow}>
+          <View style={styles.contactIconWrap}>
+            <UserPlus size={18} color={colors.accent} />
+          </View>
+          <View style={styles.headerTextWrap}>
+            <Text style={styles.contactTag}>Save to Phonebook & Vault</Text>
+            <Text style={styles.contactTitle}>
+              {action.contactName || contactNameText}
+            </Text>
+            <Text style={styles.phoneText}>
+              {action.phone || contactPhoneText}
+            </Text>
+          </View>
+        </View>
+
+        {isPending ? (
+          <>
+            <View style={styles.upiInputsRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fieldLabel}>Name</Text>
+                <TextInput
+                  value={contactNameText}
+                  onChangeText={setContactNameText}
+                  placeholder="Full name"
+                  placeholderTextColor={colors.subtle}
+                  style={styles.compactInput}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fieldLabel}>Phone</Text>
+                <TextInput
+                  value={contactPhoneText}
+                  onChangeText={setContactPhoneText}
+                  keyboardType="phone-pad"
+                  placeholder="Phone number"
+                  placeholderTextColor={colors.subtle}
+                  style={styles.compactInput}
+                />
+              </View>
+            </View>
+
+            <View style={styles.btnRow}>
+              <Pressable
+                disabled={busy}
+                onPress={handleConfirmSaveDeviceContact}
+                style={({ pressed }) => [
+                  styles.contactConfirmBtn,
+                  (pressed || busy) && styles.pressed,
+                ]}
+              >
+                {busy ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <UserPlus size={15} color="#FFFFFF" />
+                )}
+                <Text style={styles.contactConfirmText}>
+                  Save to Phonebook
+                </Text>
+              </Pressable>
+
+              <Pressable
+                disabled={busy}
+                onPress={handleCancel}
+                style={({ pressed }) => [
+                  styles.cancelBtn,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <X size={15} color={colors.muted} />
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </Pressable>
+            </View>
+          </>
+        ) : (
+          <View style={styles.statusFooter}>
+            {isConfirmed ? (
+              <>
+                <Check size={14} color={colors.sage} />
+                <Text style={[styles.statusFooterText, { color: colors.sage }]}>
+                  Saved to Phone Contacts & Friday Vault
+                </Text>
+              </>
+            ) : (
+              <>
+                <X size={14} color={colors.muted} />
+                <Text style={styles.statusFooterText}>Save cancelled</Text>
+              </>
+            )}
+          </View>
+        )}
+      </View>
+    );
+  }
+
+  // 5. SMS DRAFT CARD
   return (
     <View
       style={[
@@ -167,8 +623,8 @@ export function ActionConfirmCard({
       {isPending ? (
         <>
           <TextInput
-            value={smsBody}
-            onChangeText={setSmsBody}
+            value={draftBody}
+            onChangeText={setDraftBody}
             multiline
             style={styles.smsInput}
             placeholder="Edit message before sending…"
@@ -202,7 +658,7 @@ export function ActionConfirmCard({
         <>
           <View style={styles.readonlyDraftBox}>
             <Text style={styles.readonlyDraftText}>
-              {action.messageBody || smsBody}
+              {action.messageBody || draftBody}
             </Text>
           </View>
           <View style={styles.statusFooter}>
@@ -241,6 +697,15 @@ const styles = StyleSheet.create({
   smsBorder: {
     borderColor: colors.skyBorder,
   },
+  waBorder: {
+    borderColor: WHATSAPP_BORDER,
+  },
+  upiBorder: {
+    borderColor: colors.warningBorder,
+  },
+  contactBorder: {
+    borderColor: colors.accentBorder,
+  },
   cardCancelled: {
     opacity: 0.65,
     borderColor: colors.line,
@@ -270,8 +735,43 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  waIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: WHATSAPP_SOFT,
+    borderWidth: 1,
+    borderColor: WHATSAPP_BORDER,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  upiIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: colors.warningBg,
+    borderWidth: 1,
+    borderColor: colors.warningBorder,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  contactIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: colors.accentSoft,
+    borderWidth: 1,
+    borderColor: colors.accentBorder,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   headerTextWrap: {
     flex: 1,
+  },
+  strictTagRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
   callTag: {
     fontSize: 11,
@@ -283,6 +783,21 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: colors.sky,
   },
+  waTag: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: WHATSAPP_GREEN,
+  },
+  upiTag: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.warning,
+  },
+  contactTag: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.accent,
+  },
   contactTitle: {
     fontSize: 15,
     fontWeight: "700",
@@ -293,6 +808,38 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     color: colors.muted,
     marginTop: 1,
+  },
+  upiVpaText: {
+    fontSize: 12.5,
+    color: colors.textSecondary,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  upiInputsRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  upiAmountField: {
+    width: 115,
+  },
+  upiNoteField: {
+    flex: 1,
+  },
+  fieldLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: colors.muted,
+    marginBottom: 4,
+  },
+  compactInput: {
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: colors.sidebar,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    paddingHorizontal: 10,
+    color: colors.text,
+    fontSize: 13.5,
   },
   smsInput: {
     minHeight: 72,
@@ -353,6 +900,51 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     color: "#061629",
+  },
+  waConfirmBtn: {
+    flex: 1,
+    height: 42,
+    borderRadius: 11,
+    backgroundColor: WHATSAPP_GREEN,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  waConfirmText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#052310",
+  },
+  upiConfirmBtn: {
+    flex: 1,
+    height: 42,
+    borderRadius: 11,
+    backgroundColor: colors.warning,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  upiConfirmText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#231503",
+  },
+  contactConfirmBtn: {
+    flex: 1,
+    height: 42,
+    borderRadius: 11,
+    backgroundColor: colors.accent,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  contactConfirmText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   cancelBtn: {
     height: 42,
