@@ -90,9 +90,18 @@ export interface ExecutedToolBatchResult {
   fetchedAttachments: Attachment[];
 }
 
+export interface ToolExecutionOptions {
+  pageSize?: number;
+  maxClipboardChars?: number;
+}
+
 export async function executeClientToolCalls(
-  toolCalls: ToolCallPayload[]
+  toolCalls: ToolCallPayload[],
+  options?: ToolExecutionOptions
 ): Promise<ExecutedToolBatchResult> {
+  const defaultPageSize = Math.max(4, Math.min(25, options?.pageSize || 8));
+  const maxClipboardChars = options?.maxClipboardChars || 1800;
+
   const toolOutputs: Array<{ toolCallId: string; outputJson: string }> = [];
   const pendingActions: PendingDeviceAction[] = [];
   const badges: ToolBadgeItem[] = [];
@@ -107,12 +116,26 @@ export async function executeClientToolCalls(
           const query = typeof args.query === "string" ? args.query : "";
           const category =
             typeof args.category === "string" ? args.category : "all";
-          const includeDevice = args.includeDeviceContacts !== false;
+          const offset =
+            typeof args.offset === "number" && !Number.isNaN(args.offset)
+              ? Math.max(0, Math.floor(args.offset))
+              : 0;
+          const requestedLimit =
+            typeof args.limit === "number" && !Number.isNaN(args.limit)
+              ? Math.min(defaultPageSize, Math.max(3, Math.floor(args.limit)))
+              : defaultPageSize;
+
+          const isPureMemoryLedgerListing =
+            !query.trim() &&
+            (category === "ledger" || category === "bill" || category === "note");
+          const includeDevice =
+            args.includeDeviceContacts === true ||
+            (args.includeDeviceContacts !== false && !isPureMemoryLedgerListing);
 
           const [vaultResult, deviceResult] = await Promise.all([
-            searchContactsAndMemories(query, category),
+            searchContactsAndMemories(query, category, requestedLimit, offset),
             includeDevice
-              ? searchDeviceContacts(query, 15)
+              ? searchDeviceContacts(query, requestedLimit, offset)
               : Promise.resolve(null),
           ]);
 
@@ -120,7 +143,7 @@ export async function executeClientToolCalls(
             badges.push({
               id: makeActionId(),
               kind: "search",
-              label: `Phonebook: ${deviceResult.matches.length} match${deviceResult.matches.length > 1 ? "es" : ""} found`,
+              label: `Phonebook: ${deviceResult.totalMatching} match${deviceResult.totalMatching > 1 ? "es" : ""}`,
             });
           }
 
@@ -128,20 +151,35 @@ export async function executeClientToolCalls(
             toolCallId: call.id,
             outputJson: JSON.stringify({
               ...vaultResult,
-              deviceContactsPermission: deviceResult?.permission ?? "skipped",
-              totalDeviceContacts: deviceResult?.totalDeviceContacts ?? 0,
-              deviceContacts: deviceResult
-                ? deviceResult.matches.map((dc) => ({
-                    source: "device_phonebook",
-                    deviceId: dc.deviceId,
-                    name: dc.name,
-                    primaryPhone: dc.primaryPhone || null,
-                    phones: dc.phones,
-                    emails: dc.emails,
-                    company: dc.company,
-                    birthday: dc.birthday,
-                  }))
-                : [],
+              devicePhonebook: deviceResult
+                ? {
+                    permission: deviceResult.permission,
+                    totalDeviceContacts: deviceResult.totalDeviceContacts,
+                    totalMatching: deviceResult.totalMatching,
+                    shownCount: deviceResult.matches.length,
+                    offset: deviceResult.offset,
+                    hasMore: deviceResult.hasMore,
+                    nextOffset: deviceResult.nextOffset,
+                    ...(deviceResult.hasMore
+                      ? {
+                          followUpHint: `Showing ${deviceResult.offset + 1}–${deviceResult.offset + deviceResult.matches.length} of ${deviceResult.totalMatching} phonebook contacts. Show ONLY this short list and ask if user wants more (offset=${deviceResult.nextOffset}) or wants to search a specific name.`,
+                        }
+                      : {}),
+                    contacts: deviceResult.matches.map((dc) => ({
+                      name: dc.name,
+                      phone: dc.primaryPhone || null,
+                      ...(dc.phones.length > 1
+                        ? {
+                            otherPhones: dc.phones
+                              .slice(1, 3)
+                              .map((p) => p.number),
+                          }
+                        : {}),
+                      ...(dc.company ? { company: dc.company } : {}),
+                      ...(dc.birthday ? { birthday: dc.birthday } : {}),
+                    })),
+                  }
+                : undefined,
             }),
           });
           break;
@@ -149,18 +187,22 @@ export async function executeClientToolCalls(
 
         case "search_device_phonebook": {
           const query = typeof args.query === "string" ? args.query : "";
+          const offset =
+            typeof args.offset === "number" && !Number.isNaN(args.offset)
+              ? Math.max(0, Math.floor(args.offset))
+              : 0;
           const limit =
             typeof args.limit === "number" && !Number.isNaN(args.limit)
-              ? args.limit
-              : 20;
+              ? Math.min(defaultPageSize, Math.max(3, Math.floor(args.limit)))
+              : defaultPageSize;
 
-          const deviceResult = await searchDeviceContacts(query, limit);
+          const deviceResult = await searchDeviceContacts(query, limit, offset);
 
           if (deviceResult.permission === "granted") {
             badges.push({
               id: makeActionId(),
               kind: "search",
-              label: `Phonebook searched (${deviceResult.matches.length} found)`,
+              label: `Phonebook (${deviceResult.matches.length}/${deviceResult.totalMatching})`,
             });
           }
 
@@ -169,11 +211,31 @@ export async function executeClientToolCalls(
             outputJson: JSON.stringify({
               permission: deviceResult.permission,
               totalDeviceContacts: deviceResult.totalDeviceContacts,
-              matches: deviceResult.matches,
-              note:
-                deviceResult.permission === "denied"
-                  ? "Contacts permission was denied by the user. Politely ask them to enable Contacts access in phone Settings."
-                  : undefined,
+              totalMatching: deviceResult.totalMatching,
+              shownCount: deviceResult.matches.length,
+              offset: deviceResult.offset,
+              hasMore: deviceResult.hasMore,
+              nextOffset: deviceResult.nextOffset,
+              ...(deviceResult.hasMore
+                ? {
+                    followUpHint: `Showing ${deviceResult.offset + 1}–${deviceResult.offset + deviceResult.matches.length} of ${deviceResult.totalMatching} phone contacts. Present ONLY these ${deviceResult.matches.length} contacts cleanly and ask if the user wants the next page (offset=${deviceResult.nextOffset}) or wants to filter by name.`,
+                  }
+                : {}),
+              contacts: deviceResult.matches.map((dc) => ({
+                name: dc.name,
+                phone: dc.primaryPhone || null,
+                ...(dc.phones.length > 1
+                  ? { otherPhones: dc.phones.slice(1, 3).map((p) => p.number) }
+                  : {}),
+                ...(dc.emails?.length ? { email: dc.emails[0] } : {}),
+                ...(dc.company ? { company: dc.company } : {}),
+                ...(dc.birthday ? { birthday: dc.birthday } : {}),
+              })),
+              ...(deviceResult.permission === "denied"
+                ? {
+                    note: "Contacts permission denied. Ask user to enable Contacts access in phone Settings.",
+                  }
+                : {}),
             }),
           });
           break;
@@ -624,8 +686,19 @@ export async function executeClientToolCalls(
               : "list";
           const reminderId =
             typeof args.reminderId === "string" ? args.reminderId : undefined;
+          const offset =
+            typeof args.offset === "number" ? args.offset : 0;
+          const limit =
+            typeof args.limit === "number"
+              ? Math.min(defaultPageSize, args.limit)
+              : defaultPageSize;
 
-          const res = await manageScheduledReminders({ action, reminderId });
+          const res = await manageScheduledReminders({
+            action,
+            reminderId,
+            limit,
+            offset,
+          });
 
           if (res.ok && action !== "list") {
             badges.push({
@@ -702,11 +775,19 @@ export async function executeClientToolCalls(
             typeof args.endDateIso === "string" ? args.endDateIso : undefined;
           const query =
             typeof args.query === "string" ? args.query : undefined;
+          const offset =
+            typeof args.offset === "number" ? args.offset : 0;
+          const limit =
+            typeof args.limit === "number"
+              ? Math.min(defaultPageSize, args.limit)
+              : defaultPageSize;
 
           const res = await readPhoneCalendarEvents({
             startDateIso,
             endDateIso,
             query,
+            limit,
+            offset,
           });
 
           if (res.ok) {
@@ -961,7 +1042,11 @@ export async function executeClientToolCalls(
           const textToCopy =
             typeof args.textToCopy === "string" ? args.textToCopy : undefined;
 
-          const res = await executeClipboardTool({ action, textToCopy });
+          const res = await executeClipboardTool({
+            action,
+            textToCopy,
+            maxReadChars: maxClipboardChars,
+          });
 
           if (res.ok && res.summary) {
             badges.push({

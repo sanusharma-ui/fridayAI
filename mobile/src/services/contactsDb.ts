@@ -550,15 +550,28 @@ export async function modifyMemoryRecord(params: {
 
 export async function searchContactsAndMemories(
   query = "",
-  categoryFilter = "all"
+  categoryFilter = "all",
+  limit = 8,
+  offset = 0
 ) {
   const [contacts, memories] = await Promise.all([
     getAllContacts(),
     getAllMemories(true),
   ]);
 
+  const cleanLimit = Math.max(3, Math.min(25, limit));
+  const cleanOffset = Math.max(0, Math.floor(offset));
   const q = query.trim().toLowerCase();
   const cat = categoryFilter.trim().toLowerCase();
+
+  let activePayableTotal = 0;
+  let activeReceivableTotal = 0;
+  for (const m of memories) {
+    if (m.status === "pending" && typeof m.amount === "number") {
+      if (m.direction === "payable") activePayableTotal += m.amount;
+      if (m.direction === "receivable") activeReceivableTotal += m.amount;
+    }
+  }
 
   const matchesContact = (c: ContactRecord) => {
     if (!q) return true;
@@ -588,53 +601,79 @@ export async function searchContactsAndMemories(
       (matchesMemory(m) || (m.contactId && matchedContactIds.has(m.contactId)))
   );
 
-  // Include compact directory overview when matches are sparse so LLM can semantically match
-  // aliases like Mummy <-> Mom, Papa <-> Dad, Bhai <-> Rohit without hardcoded phrase rules!
-  const includeDirectoryOverview = matchedContacts.length < 3 && contacts.length <= 80;
+  const pagedContacts = matchedContacts.slice(
+    cleanOffset,
+    cleanOffset + cleanLimit
+  );
+  const pagedMemories = matchedMemories.slice(
+    cleanOffset,
+    cleanOffset + cleanLimit
+  );
+
+  const hasMoreContacts =
+    cleanOffset + pagedContacts.length < matchedContacts.length;
+  const hasMoreMemories =
+    cleanOffset + pagedMemories.length < matchedMemories.length;
+  const hasMore = hasMoreContacts || hasMoreMemories;
+
+  // Only include ultra-compact alias hints if query missed AND vault is small (<= 15 people)
+  const compactAliases =
+    q && matchedContacts.length === 0 && contacts.length > 0 && contacts.length <= 15
+      ? contacts.map((c) =>
+          c.relationship ? `${c.name} (${c.relationship})` : c.name
+        )
+      : undefined;
 
   return {
-    totalSavedContacts: contacts.length,
-    matchedContacts: matchedContacts.slice(0, 25).map((c) => ({
+    vaultSummary: {
+      totalSavedContacts: contacts.length,
+      matchingContactsCount: matchedContacts.length,
+      matchingMemoriesCount: matchedMemories.length,
+      activePayableTotal,
+      activeReceivableTotal,
+    },
+    pagination: {
+      offset: cleanOffset,
+      limit: cleanLimit,
+      hasMore,
+      nextOffset: hasMore ? cleanOffset + cleanLimit : null,
+      followUpHint: hasMore
+        ? `Showing ${cleanOffset + 1}–${cleanOffset + cleanLimit}. Present ONLY this batch and ask if the user wants more (offset=${cleanOffset + cleanLimit}) or wants to filter by name.`
+        : undefined,
+    },
+    matchedContacts: pagedContacts.map((c) => ({
       id: c.id,
       name: c.name,
-      phone: c.phone || null,
-      relationship: c.relationship || null,
-      birthday: c.birthday || null,
-      notes: c.notes || null,
+      ...(c.phone ? { phone: c.phone } : {}),
+      ...(c.relationship ? { relationship: c.relationship } : {}),
+      ...(c.birthday ? { birthday: c.birthday } : {}),
+      ...(c.notes ? { notes: c.notes.slice(0, 140) } : {}),
       memories: memories
-        .filter((m) => m.contactId === c.id)
+        .filter((m) => m.contactId === c.id && m.status !== "settled")
+        .slice(0, 4)
         .map((m) => ({
           id: m.id,
           category: m.category,
           label: m.label,
-          detail: m.detail,
-          amount: m.amount,
-          direction: m.direction,
-          eventDate: m.eventDate || null,
+          detail: m.detail.slice(0, 140),
+          ...(m.amount !== null ? { amount: m.amount } : {}),
+          ...(m.direction !== "none" ? { direction: m.direction } : {}),
+          ...(m.eventDate ? { eventDate: m.eventDate } : {}),
           status: m.status,
         })),
     })),
-    matchedMemories: matchedMemories.slice(0, 35).map((m) => ({
+    matchedMemories: pagedMemories.map((m) => ({
       id: m.id,
-      contactId: m.contactId,
-      contactName: m.contactName || null,
+      ...(m.contactName ? { contactName: m.contactName } : {}),
       category: m.category,
       label: m.label,
-      detail: m.detail,
-      amount: m.amount,
-      direction: m.direction,
-      eventDate: m.eventDate || null,
+      detail: m.detail.slice(0, 160),
+      ...(m.amount !== null ? { amount: m.amount } : {}),
+      ...(m.direction !== "none" ? { direction: m.direction } : {}),
+      ...(m.eventDate ? { eventDate: m.eventDate } : {}),
       status: m.status,
     })),
-    directoryOverview: includeDirectoryOverview
-      ? contacts.map((c) => ({
-          id: c.id,
-          name: c.name,
-          relationship: c.relationship || null,
-          phone: c.phone || null,
-          birthday: c.birthday || null,
-        }))
-      : undefined,
+    ...(compactAliases ? { savedVaultNames: compactAliases } : {}),
   };
 }
 

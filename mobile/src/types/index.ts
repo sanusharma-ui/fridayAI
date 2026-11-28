@@ -146,12 +146,23 @@ export interface GroqModelOption {
   recommended?: boolean;
 }
 
+export type TokenBudgetMode = "balanced" | "custom";
+
+export interface TokenBudgetConfig {
+  mode: TokenBudgetMode;
+  maxInputTokens: number;
+  maxOutputTokens: number;
+  maxHistoryTurns: number;
+  toolPageSize: number;
+}
+
 export interface AppSettings {
   groqApiKey: string;
   backendUrl: string;
   selectedModel: string;
   selectedVisionModel: string;
   keyVerified: boolean;
+  tokenBudget: TokenBudgetConfig;
 }
 
 export type ConnectionState =

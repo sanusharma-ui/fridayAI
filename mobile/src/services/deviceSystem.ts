@@ -513,9 +513,12 @@ export async function executeSystemControl(input: {
 export async function executeClipboardTool(input: {
   action: "read" | "copy";
   textToCopy?: string;
+  maxReadChars?: number;
 }): Promise<{
   ok: boolean;
   clipboardText?: string;
+  totalChars?: number;
+  truncated?: boolean;
   summary?: string;
   error?: string;
 }> {
@@ -532,12 +535,16 @@ export async function executeClipboardTool(input: {
       };
     }
 
+    const maxChars = Math.max(400, Math.min(6000, input.maxReadChars || 1800));
     const current = await Clipboard.getStringAsync();
+    const truncated = Boolean(current && current.length > maxChars);
     return {
       ok: true,
-      clipboardText: current ? current.slice(0, 8000) : "",
+      clipboardText: current ? current.slice(0, maxChars) : "",
+      totalChars: current ? current.length : 0,
+      ...(truncated ? { truncated: true } : {}),
       summary: current
-        ? `Read clipboard (${current.length} chars)`
+        ? `Read clipboard (${current.length} chars${truncated ? ", previewed" : ""})`
         : "Clipboard is empty",
     };
   } catch (err) {

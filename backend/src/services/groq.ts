@@ -1,8 +1,10 @@
 import type { Request } from "express";
 import {
+  BALANCED_TOKEN_DEFAULTS,
   CURATED_GROQ_MODELS,
   DEFAULT_TEXT_MODEL,
   DEFAULT_VISION_MODEL,
+  FRIDAY_CHAT_SYSTEM_PROMPT,
   FRIDAY_SYSTEM_PROMPT,
   GROQ_BASE_URL,
   SERVER_FALLBACK_GROQ_KEY,
@@ -11,9 +13,13 @@ import type {
   AgentLoopMessage,
   ConversationTurn,
   GroqModelOption,
+  TokenBudgetConfig,
   ToolCallItem,
 } from "../types.js";
-import { FRIDAY_TOOLS } from "./toolsSchema.js";
+import {
+  selectRelevantTools,
+  type GroqToolDefinition,
+} from "./toolsSchema.js";
 
 export class GroqApiError extends Error {
   status: number;
@@ -227,23 +233,73 @@ function safeParseToolArgs(rawArgs: string): Record<string, unknown> {
   }
 }
 
+function estimateTokens(text: string): number {
+  if (!text) return 0;
+  return Math.ceil(text.length / 3.6);
+}
+
+const DETAILED_OUTPUT_HINT_REGEX =
+  /\b(code|implement|script|program|function|class|sql|html|css|table|compare|detailed|explain\s+in\s+detail|essay|guide|roadmap|step\s+by\s+step|architecture|summary|summarize|analyze)\b/i;
+
+function resolveEffectiveMaxCompletionTokens(params: {
+  chosenModel: string;
+  userMessage: string;
+  hasPdfContext: boolean;
+  tokenBudget?: TokenBudgetConfig;
+}): number {
+  const { chosenModel, userMessage, hasPdfContext, tokenBudget } = params;
+  if (tokenBudget?.mode === "custom" && tokenBudget.maxOutputTokens) {
+    return Math.max(200, Math.min(8192, tokenBudget.maxOutputTokens));
+  }
+
+  const lowerModel = chosenModel.toLowerCase();
+  const isReasoningModel =
+    lowerModel.includes("gpt-oss") ||
+    lowerModel.includes("deepseek") ||
+    lowerModel.includes("qwen3");
+
+  if (isReasoningModel) {
+    return BALANCED_TOKEN_DEFAULTS.maxOutputTokensReasoning;
+  }
+
+  if (
+    hasPdfContext ||
+    userMessage.length > 260 ||
+    DETAILED_OUTPUT_HINT_REGEX.test(userMessage)
+  ) {
+    return BALANCED_TOKEN_DEFAULTS.maxOutputTokensDetailed;
+  }
+
+  return BALANCED_TOKEN_DEFAULTS.maxOutputTokensQuick;
+}
+
 function buildMessagesPayload(params: {
   userMessage: string;
   history: ConversationTurn[];
   imageDataUrls: string[];
   contextSections: string[];
   agentMessages?: AgentLoopMessage[];
+  enableTools?: boolean;
   requestedModel?: string;
   requestedVisionModel?: string;
-}): { chosenModel: string; hasImages: boolean; messages: unknown[] } {
+  tokenBudget?: TokenBudgetConfig;
+}): {
+  chosenModel: string;
+  hasImages: boolean;
+  messages: unknown[];
+  activeTools: GroqToolDefinition[];
+  maxCompletionTokens: number;
+} {
   const {
     userMessage,
     history,
     imageDataUrls,
     contextSections,
     agentMessages,
+    enableTools,
     requestedModel,
     requestedVisionModel,
+    tokenBudget,
   } = params;
 
   const hasImages = imageDataUrls.length > 0;
@@ -252,8 +308,28 @@ function buildMessagesPayload(params: {
     chosenModel = requestedVisionModel?.trim() || DEFAULT_VISION_MODEL;
   }
 
+  const activeTools =
+    enableTools !== false && !hasImages
+      ? selectRelevantTools({ userMessage, history, agentMessages })
+      : [];
+
+  const maxInputTokens =
+    tokenBudget?.mode === "custom" && tokenBudget.maxInputTokens
+      ? Math.max(800, Math.min(24000, tokenBudget.maxInputTokens))
+      : BALANCED_TOKEN_DEFAULTS.maxInputTokens;
+
+  const maxCompletionTokens = resolveEffectiveMaxCompletionTokens({
+    chosenModel,
+    userMessage,
+    hasPdfContext: contextSections.length > 0,
+    tokenBudget,
+  });
+
+  // Cap PDF/attachment text section to fit comfortably inside maxInputTokens
+  const maxContextChars = Math.max(1500, Math.floor(maxInputTokens * 2.1));
+  const rawContextBlock = contextSections.join("\n\n").slice(0, maxContextChars);
   const combinedText =
-    (contextSections.length > 0 ? `${contextSections.join("\n\n")}\n\n` : "") +
+    (rawContextBlock ? `${rawContextBlock}\n\n` : "") +
     (userMessage || "Please analyze the attached file(s).");
 
   const now = new Date();
@@ -261,21 +337,70 @@ function buildMessagesPayload(params: {
   const tzSign = tzOffsetMin >= 0 ? "+" : "-";
   const tzAbs = Math.abs(tzOffsetMin);
   const tzIsoOffset = `${tzSign}${String(Math.floor(tzAbs / 60)).padStart(2, "0")}:${String(tzAbs % 60).padStart(2, "0")}`;
-  const liveClockLine = `\n\n## Current Local Date & Time\nRight now it is: ${now.toLocaleString("en-IN", {
-    weekday: "long",
+  const liveClockLine = `\nCurrent Local Time: ${now.toLocaleString("en-IN", {
+    weekday: "short",
     year: "numeric",
-    month: "long",
+    month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
     hour12: true,
-  })} (ISO: ${now.toISOString()}, Local Offset: ${tzIsoOffset}). Use this exact reference when resolving "aaj", "kal", "parso", "subah", "shaam", or relative times.`;
+  })} (${tzIsoOffset}).`;
+
+  const systemContent =
+    activeTools.length > 0
+      ? `${FRIDAY_SYSTEM_PROMPT}${liveClockLine}`
+      : `${FRIDAY_CHAT_SYSTEM_PROMPT}${liveClockLine}`;
+
+  // Estimate fixed tokens (system + tool schemas + current user message + agent tool turns)
+  const toolsChars =
+    activeTools.length > 0 ? JSON.stringify(activeTools).length : 0;
+  const agentChars = Array.isArray(agentMessages)
+    ? JSON.stringify(agentMessages).length
+    : 0;
+  const fixedTokens =
+    estimateTokens(systemContent) +
+    Math.ceil(toolsChars / 4.2) +
+    estimateTokens(combinedText) +
+    estimateTokens(String(agentChars));
+
+  let remainingHistoryTokenBudget = Math.max(
+    180,
+    maxInputTokens - fixedTokens
+  );
+
+  // Trim history newest-first so recent context stays intact while respecting maxInputTokens
+  const perTurnCharCap =
+    tokenBudget?.mode === "custom" ? 1800 : 900;
+  const selectedHistoryReversed: ConversationTurn[] = [];
+  const cleanHistory = history.filter((t) => t.content.trim().length > 0);
+
+  for (let i = cleanHistory.length - 1; i >= 0; i--) {
+    const turn = cleanHistory[i];
+    const trimmedContent =
+      turn.content.length > perTurnCharCap
+        ? `${turn.content.slice(0, perTurnCharCap)}…`
+        : turn.content;
+    const tTokens = estimateTokens(trimmedContent) + 6;
+    if (
+      selectedHistoryReversed.length > 0 &&
+      tTokens > remainingHistoryTokenBudget
+    ) {
+      break;
+    }
+    remainingHistoryTokenBudget -= tTokens;
+    selectedHistoryReversed.push({
+      role: turn.role,
+      content: trimmedContent,
+    });
+    if (remainingHistoryTokenBudget <= 40) break;
+  }
+
+  const fittedHistory = selectedHistoryReversed.reverse();
 
   const messages: unknown[] = [
-    { role: "system", content: `${FRIDAY_SYSTEM_PROMPT}${liveClockLine}` },
-    ...history
-      .filter((t) => t.content.trim().length > 0)
-      .map((t) => ({ role: t.role, content: t.content })),
+    { role: "system", content: systemContent },
+    ...fittedHistory.map((t) => ({ role: t.role, content: t.content })),
   ];
 
   if (hasImages) {
@@ -304,7 +429,13 @@ function buildMessagesPayload(params: {
     }
   }
 
-  return { chosenModel, hasImages, messages };
+  return {
+    chosenModel,
+    hasImages,
+    messages,
+    activeTools,
+    maxCompletionTokens,
+  };
 }
 
 function isModelFallbackCandidateError(err: unknown): err is GroqApiError {
@@ -370,6 +501,7 @@ export interface GenerateGroqReplyParams {
   enableTools?: boolean;
   requestedModel?: string;
   requestedVisionModel?: string;
+  tokenBudget?: TokenBudgetConfig;
 }
 
 export interface GenerateGroqReplyResult {
@@ -380,11 +512,14 @@ export interface GenerateGroqReplyResult {
   notices: string[];
 }
 
+const FAST_TPM_FALLBACK_MODEL = "llama-3.1-8b-instant";
+
 async function callGroqChatCompletions(
   apiKey: string,
   model: string,
   messages: unknown[],
-  useTools: boolean
+  activeTools: GroqToolDefinition[],
+  maxCompletionTokens: number
 ): Promise<{
   content: string;
   reasoning?: string;
@@ -395,10 +530,10 @@ async function callGroqChatCompletions(
     model,
     messages,
     temperature: 0.5,
-    max_completion_tokens: 4096,
+    max_completion_tokens: maxCompletionTokens,
   };
-  if (useTools) {
-    payload.tools = FRIDAY_TOOLS;
+  if (activeTools.length > 0) {
+    payload.tools = activeTools;
     payload.tool_choice = "auto";
   }
 
@@ -481,8 +616,13 @@ export async function generateGroqReply(
   params: GenerateGroqReplyParams
 ): Promise<GenerateGroqReplyResult> {
   const notices: string[] = [];
-  const { chosenModel, hasImages, messages } = buildMessagesPayload(params);
-  const useTools = params.enableTools !== false && !hasImages;
+  const {
+    chosenModel,
+    hasImages,
+    messages,
+    activeTools,
+    maxCompletionTokens,
+  } = buildMessagesPayload(params);
 
   try {
     const {
@@ -490,7 +630,13 @@ export async function generateGroqReply(
       reasoning: apiReasoning,
       toolCalls,
       modelUsed,
-    } = await callGroqChatCompletions(params.apiKey, chosenModel, messages, useTools);
+    } = await callGroqChatCompletions(
+      params.apiKey,
+      chosenModel,
+      messages,
+      activeTools,
+      maxCompletionTokens
+    );
     const { cleanText, reasoning: tagReasoning } = stripReasoningBlocks(content);
     return {
       response: cleanText,
@@ -500,6 +646,37 @@ export async function generateGroqReply(
       notices,
     };
   } catch (err) {
+    if (
+      err instanceof GroqApiError &&
+      err.code === "RATE_LIMITED" &&
+      !hasImages &&
+      chosenModel !== FAST_TPM_FALLBACK_MODEL
+    ) {
+      const {
+        content,
+        reasoning: apiReasoning,
+        toolCalls,
+        modelUsed,
+      } = await callGroqChatCompletions(
+        params.apiKey,
+        FAST_TPM_FALLBACK_MODEL,
+        messages,
+        activeTools,
+        Math.min(maxCompletionTokens, 900)
+      );
+      notices.push(
+        `Primary model hit Groq TPM limit — answered via ${FAST_TPM_FALLBACK_MODEL}.`
+      );
+      const { cleanText, reasoning: tagReasoning } = stripReasoningBlocks(content);
+      return {
+        response: cleanText,
+        reasoning: apiReasoning || tagReasoning,
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        modelUsed,
+        notices,
+      };
+    }
+
     if (isModelFallbackCandidateError(err)) {
       const liveModels = await fetchGroqModels(params.apiKey);
       const fallbackCandidate = hasImages
@@ -517,7 +694,8 @@ export async function generateGroqReply(
           params.apiKey,
           fallbackCandidate,
           messages,
-          useTools
+          activeTools,
+          maxCompletionTokens
         );
         notices.push(`Switched automatically to active Groq model: ${modelUsed}`);
         const { cleanText, reasoning: tagReasoning } = stripReasoningBlocks(content);
@@ -635,7 +813,8 @@ async function openGroqStreamResponse(
   apiKey: string,
   model: string,
   messages: unknown[],
-  useTools: boolean,
+  activeTools: GroqToolDefinition[],
+  maxCompletionTokens: number,
   temperature = 0.5,
   signal?: AbortSignal
 ): Promise<Response> {
@@ -648,11 +827,11 @@ async function openGroqStreamResponse(
     model,
     messages,
     temperature,
-    max_completion_tokens: 4096,
+    max_completion_tokens: maxCompletionTokens,
     stream: true,
   };
-  if (useTools) {
-    payload.tools = FRIDAY_TOOLS;
+  if (activeTools.length > 0) {
+    payload.tools = activeTools;
     payload.tool_choice = "auto";
   }
 
@@ -704,10 +883,15 @@ export async function streamGroqReply(
   callbacks: StreamGroqCallbacks,
   signal?: AbortSignal
 ): Promise<StreamGroqResult> {
-  const { chosenModel, hasImages, messages } = buildMessagesPayload(params);
-  // Enable native tool calling when not doing pure image-vision (or if vision model supports tools, fallback cleanly)
-  let useTools = params.enableTools !== false && !hasImages;
+  const {
+    chosenModel,
+    hasImages,
+    messages,
+    activeTools: initialTools,
+    maxCompletionTokens,
+  } = buildMessagesPayload(params);
 
+  let activeTools = initialTools;
   let res: Response;
   let activeModel = chosenModel;
 
@@ -716,13 +900,32 @@ export async function streamGroqReply(
       params.apiKey,
       activeModel,
       messages,
-      useTools,
+      activeTools,
+      maxCompletionTokens,
       0.5,
       signal
     );
   } catch (err) {
-    // Handle Llama's occasional `tool_use_failed` by recovering tool call or retrying at temp 0.1
-    if (err instanceof GroqApiError && err.code === "tool_use_failed") {
+    if (
+      err instanceof GroqApiError &&
+      err.code === "RATE_LIMITED" &&
+      !hasImages &&
+      activeModel !== FAST_TPM_FALLBACK_MODEL
+    ) {
+      activeModel = FAST_TPM_FALLBACK_MODEL;
+      res = await openGroqStreamResponse(
+        params.apiKey,
+        activeModel,
+        messages,
+        activeTools,
+        Math.min(maxCompletionTokens, 900),
+        0.4,
+        signal
+      );
+      callbacks.onNotice?.(
+        `Primary model hit Groq TPM limit — switched to ${FAST_TPM_FALLBACK_MODEL} for instant reply.`
+      );
+    } else if (err instanceof GroqApiError && err.code === "tool_use_failed") {
       const recovered = recoverFailedToolGeneration(err.failedGeneration);
       if (recovered.length > 0) {
         return {
@@ -735,7 +938,8 @@ export async function streamGroqReply(
         params.apiKey,
         DEFAULT_TEXT_MODEL,
         messages,
-        useTools,
+        activeTools,
+        maxCompletionTokens,
         0.1,
         signal
       );
@@ -743,27 +947,28 @@ export async function streamGroqReply(
     } else if (
       err instanceof GroqApiError &&
       err.status === 400 &&
-      useTools &&
+      activeTools.length > 0 &&
       err.message.toLowerCase().includes("tool")
     ) {
-      // Selected model doesn't support tools — fallback to default text model with tools or disable tools
       if (activeModel !== DEFAULT_TEXT_MODEL) {
         activeModel = DEFAULT_TEXT_MODEL;
         res = await openGroqStreamResponse(
           params.apiKey,
           activeModel,
           messages,
-          true,
+          activeTools,
+          maxCompletionTokens,
           0.4,
           signal
         );
       } else {
-        useTools = false;
+        activeTools = [];
         res = await openGroqStreamResponse(
           params.apiKey,
           activeModel,
           messages,
-          false,
+          [],
+          maxCompletionTokens,
           0.5,
           signal
         );
@@ -781,7 +986,8 @@ export async function streamGroqReply(
           params.apiKey,
           activeModel,
           messages,
-          useTools,
+          activeTools,
+          maxCompletionTokens,
           0.5,
           signal
         );

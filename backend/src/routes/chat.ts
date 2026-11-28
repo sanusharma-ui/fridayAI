@@ -12,6 +12,7 @@ import type {
   ChatRequestBody,
   ConversationTurn,
   IncomingAttachment,
+  TokenBudgetConfig,
 } from "../types.js";
 
 export const chatRouter = Router();
@@ -36,9 +37,13 @@ interface ValidatedInput {
   enableTools: boolean;
   requestedModel?: string;
   requestedVisionModel?: string;
+  tokenBudget?: TokenBudgetConfig;
 }
 
-function sanitizeAgentMessages(raw: unknown): AgentLoopMessage[] {
+function sanitizeAgentMessages(
+  raw: unknown,
+  maxToolChars = 3200
+): AgentLoopMessage[] {
   if (!Array.isArray(raw)) return [];
   const cleaned: AgentLoopMessage[] = [];
 
@@ -75,13 +80,38 @@ function sanitizeAgentMessages(raw: unknown): AgentLoopMessage[] {
         tool_call_id: msg.tool_call_id,
         content:
           typeof msg.content === "string"
-            ? msg.content.slice(0, 14_000)
+            ? msg.content.slice(0, maxToolChars)
             : "{}",
       });
     }
   }
 
   return cleaned;
+}
+
+function sanitizeTokenBudget(raw: unknown): TokenBudgetConfig | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const obj = raw as Record<string, unknown>;
+  const mode = obj.mode === "custom" ? "custom" : "balanced";
+  return {
+    mode,
+    maxInputTokens:
+      typeof obj.maxInputTokens === "number" && !Number.isNaN(obj.maxInputTokens)
+        ? Math.max(800, Math.min(24000, Math.round(obj.maxInputTokens)))
+        : undefined,
+    maxOutputTokens:
+      typeof obj.maxOutputTokens === "number" && !Number.isNaN(obj.maxOutputTokens)
+        ? Math.max(200, Math.min(8192, Math.round(obj.maxOutputTokens)))
+        : undefined,
+    maxHistoryTurns:
+      typeof obj.maxHistoryTurns === "number" && !Number.isNaN(obj.maxHistoryTurns)
+        ? Math.max(1, Math.min(20, Math.round(obj.maxHistoryTurns)))
+        : undefined,
+    toolPageSize:
+      typeof obj.toolPageSize === "number" && !Number.isNaN(obj.toolPageSize)
+        ? Math.max(3, Math.min(30, Math.round(obj.toolPageSize)))
+        : undefined,
+  };
 }
 
 function validateChatInput(req: Request): ValidatedInput {
@@ -92,12 +122,22 @@ function validateChatInput(req: Request): ValidatedInput {
   const rawAttachments: IncomingAttachment[] = Array.isArray(body.attachments)
     ? body.attachments
     : [];
-  const agentMessages = sanitizeAgentMessages(body.agentMessages);
+  const tokenBudget = sanitizeTokenBudget(body.tokenBudget);
+  const maxToolChars =
+    tokenBudget?.mode === "custom" && tokenBudget.maxInputTokens
+      ? Math.min(10000, Math.max(2000, tokenBudget.maxInputTokens * 2))
+      : 3200;
+  const agentMessages = sanitizeAgentMessages(body.agentMessages, maxToolChars);
   const enableTools = body.enableTools !== false;
+
+  const historyLimit =
+    tokenBudget?.mode === "custom" && tokenBudget.maxHistoryTurns
+      ? tokenBudget.maxHistoryTurns
+      : 6;
 
   const history: ConversationTurn[] = Array.isArray(body.history)
     ? body.history
-        .slice(-LIMITS.maxHistoryTurns)
+        .slice(-historyLimit)
         .filter(
           (turn): turn is ConversationTurn =>
             Boolean(turn) &&
@@ -140,6 +180,7 @@ function validateChatInput(req: Request): ValidatedInput {
     enableTools,
     requestedModel: body.model,
     requestedVisionModel: body.visionModel,
+    tokenBudget,
   };
 }
 
@@ -232,6 +273,7 @@ chatRouter.post("/chat", async (req, res) => {
       enableTools: input.enableTools,
       requestedModel: input.requestedModel,
       requestedVisionModel: input.requestedVisionModel,
+      tokenBudget: input.tokenBudget,
     });
 
     res.json({
@@ -325,6 +367,7 @@ chatRouter.post("/chat/stream", async (req, res) => {
         enableTools: input.enableTools,
         requestedModel: input.requestedModel,
         requestedVisionModel: input.requestedVisionModel,
+        tokenBudget: input.tokenBudget,
       },
       {
         onNotice: (notice) => sendEvent({ type: "notice", notice }),

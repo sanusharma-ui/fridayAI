@@ -1,7 +1,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
-import type { AppSettings, GroqModelOption } from "../types";
+import type {
+  AppSettings,
+  GroqModelOption,
+  TokenBudgetConfig,
+} from "../types";
 
 const SECURE_GROQ_KEY = "friday_groq_api_key_v1";
 const SETTINGS_STORAGE_KEY = "friday:mobile:settings:v1";
@@ -18,7 +22,7 @@ export const DEFAULT_MODELS: GroqModelOption[] = [
   },
   {
     id: "llama-3.1-8b-instant",
-    label: "Llama 3.1 8B Instant (Ultra Fast)",
+    label: "Llama 3.1 8B Instant (High Rate-Limit / Fast)",
     ownedBy: "Meta",
     contextWindow: 131072,
     supportsVision: false,
@@ -49,13 +53,60 @@ export const DEFAULT_MODELS: GroqModelOption[] = [
   },
 ];
 
+export const DEFAULT_TOKEN_BUDGET: TokenBudgetConfig = {
+  mode: "balanced",
+  maxInputTokens: 2800,
+  maxOutputTokens: 1024,
+  maxHistoryTurns: 6,
+  toolPageSize: 8,
+};
+
 export const DEFAULT_SETTINGS: AppSettings = {
   groqApiKey: "",
   backendUrl: "",
   selectedModel: "llama-3.3-70b-versatile",
   selectedVisionModel: "qwen/qwen3.8-27b",
   keyVerified: false,
+  tokenBudget: { ...DEFAULT_TOKEN_BUDGET },
 };
+
+function clampInt(val: unknown, fallback: number, min: number, max: number): number {
+  if (typeof val !== "number" || Number.isNaN(val)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(val)));
+}
+
+function normalizeTokenBudget(raw?: Partial<TokenBudgetConfig>): TokenBudgetConfig {
+  if (!raw || typeof raw !== "object") {
+    return { ...DEFAULT_TOKEN_BUDGET };
+  }
+  return {
+    mode: raw.mode === "custom" ? "custom" : "balanced",
+    maxInputTokens: clampInt(
+      raw.maxInputTokens,
+      DEFAULT_TOKEN_BUDGET.maxInputTokens,
+      800,
+      20000
+    ),
+    maxOutputTokens: clampInt(
+      raw.maxOutputTokens,
+      DEFAULT_TOKEN_BUDGET.maxOutputTokens,
+      256,
+      8192
+    ),
+    maxHistoryTurns: clampInt(
+      raw.maxHistoryTurns,
+      DEFAULT_TOKEN_BUDGET.maxHistoryTurns,
+      2,
+      20
+    ),
+    toolPageSize: clampInt(
+      raw.toolPageSize,
+      DEFAULT_TOKEN_BUDGET.toolPageSize,
+      4,
+      25
+    ),
+  };
+}
 
 async function canUseSecureStore(): Promise<boolean> {
   if (Platform.OS === "web") return false;
@@ -69,7 +120,9 @@ async function canUseSecureStore(): Promise<boolean> {
 export async function loadSettings(): Promise<AppSettings> {
   try {
     const rawSettings = await AsyncStorage.getItem(SETTINGS_STORAGE_KEY);
-    const parsed = rawSettings ? (JSON.parse(rawSettings) as Partial<AppSettings>) : {};
+    const parsed = rawSettings
+      ? (JSON.parse(rawSettings) as Partial<AppSettings>)
+      : {};
 
     let groqApiKey = "";
     if (await canUseSecureStore()) {
@@ -80,19 +133,22 @@ export async function loadSettings(): Promise<AppSettings> {
 
     return {
       groqApiKey: groqApiKey.trim(),
-      backendUrl: typeof parsed.backendUrl === "string" ? parsed.backendUrl.trim() : "",
+      backendUrl:
+        typeof parsed.backendUrl === "string" ? parsed.backendUrl.trim() : "",
       selectedModel:
         typeof parsed.selectedModel === "string" && parsed.selectedModel.trim()
           ? parsed.selectedModel.trim()
           : DEFAULT_SETTINGS.selectedModel,
       selectedVisionModel:
-        typeof parsed.selectedVisionModel === "string" && parsed.selectedVisionModel.trim()
+        typeof parsed.selectedVisionModel === "string" &&
+        parsed.selectedVisionModel.trim()
           ? parsed.selectedVisionModel.trim()
           : DEFAULT_SETTINGS.selectedVisionModel,
       keyVerified: Boolean(parsed.keyVerified && groqApiKey.trim()),
+      tokenBudget: normalizeTokenBudget(parsed.tokenBudget),
     };
   } catch {
-    return { ...DEFAULT_SETTINGS };
+    return { ...DEFAULT_SETTINGS, tokenBudget: { ...DEFAULT_TOKEN_BUDGET } };
   }
 }
 
@@ -115,13 +171,19 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
 
   const nonSecretPayload = {
     backendUrl: settings.backendUrl.trim(),
-    selectedModel: settings.selectedModel.trim() || DEFAULT_SETTINGS.selectedModel,
+    selectedModel:
+      settings.selectedModel.trim() || DEFAULT_SETTINGS.selectedModel,
     selectedVisionModel:
-      settings.selectedVisionModel.trim() || DEFAULT_SETTINGS.selectedVisionModel,
+      settings.selectedVisionModel.trim() ||
+      DEFAULT_SETTINGS.selectedVisionModel,
     keyVerified: Boolean(settings.keyVerified && cleanKey),
+    tokenBudget: normalizeTokenBudget(settings.tokenBudget),
   };
 
-  await AsyncStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(nonSecretPayload));
+  await AsyncStorage.setItem(
+    SETTINGS_STORAGE_KEY,
+    JSON.stringify(nonSecretPayload)
+  );
 }
 
 export async function loadCachedModels(): Promise<GroqModelOption[]> {
@@ -138,7 +200,9 @@ export async function loadCachedModels(): Promise<GroqModelOption[]> {
   }
 }
 
-export async function saveCachedModels(models: GroqModelOption[]): Promise<void> {
+export async function saveCachedModels(
+  models: GroqModelOption[]
+): Promise<void> {
   try {
     await AsyncStorage.setItem(MODELS_CACHE_KEY, JSON.stringify(models));
   } catch {

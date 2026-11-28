@@ -247,10 +247,15 @@ export async function loadAllDeviceContacts(
 
 export async function searchDeviceContacts(
   query = "",
-  limit = 20
+  limit = 8,
+  offset = 0
 ): Promise<{
   permission: ContactsPermissionState;
   totalDeviceContacts: number;
+  totalMatching: number;
+  offset: number;
+  hasMore: boolean;
+  nextOffset: number | null;
   matches: DeviceContactItem[];
 }> {
   const { permission, contacts } = await loadAllDeviceContacts(true);
@@ -258,20 +263,30 @@ export async function searchDeviceContacts(
     return {
       permission,
       totalDeviceContacts: 0,
+      totalMatching: 0,
+      offset: 0,
+      hasMore: false,
+      nextOffset: null,
       matches: [],
     };
   }
 
-  const cleanLimit = Math.max(1, Math.min(50, limit));
+  const cleanLimit = Math.max(1, Math.min(25, limit));
+  const cleanOffset = Math.max(0, Math.floor(offset));
   const q = query.trim().toLowerCase();
 
   if (!q) {
+    const withPhone = contacts.filter((c) => Boolean(c.primaryPhone));
+    const slice = withPhone.slice(cleanOffset, cleanOffset + cleanLimit);
+    const hasMore = cleanOffset + slice.length < withPhone.length;
     return {
       permission,
       totalDeviceContacts: contacts.length,
-      matches: contacts
-        .filter((c) => Boolean(c.primaryPhone))
-        .slice(0, cleanLimit),
+      totalMatching: withPhone.length,
+      offset: cleanOffset,
+      hasMore,
+      nextOffset: hasMore ? cleanOffset + cleanLimit : null,
+      matches: slice,
     };
   }
 
@@ -323,10 +338,19 @@ export async function searchDeviceContacts(
     return a.item.name.localeCompare(b.item.name);
   });
 
+  const slice = scored
+    .slice(cleanOffset, cleanOffset + cleanLimit)
+    .map((s) => s.item);
+  const hasMore = cleanOffset + slice.length < scored.length;
+
   return {
     permission,
     totalDeviceContacts: contacts.length,
-    matches: scored.slice(0, cleanLimit).map((s) => s.item),
+    totalMatching: scored.length,
+    offset: cleanOffset,
+    hasMore,
+    nextOffset: hasMore ? cleanOffset + cleanLimit : null,
+    matches: slice,
   };
 }
 

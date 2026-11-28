@@ -21,6 +21,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  Gauge,
   KeyRound,
   RefreshCw,
   Server,
@@ -34,10 +35,17 @@ import {
   getAutoDetectedBackendUrl,
   verifyGroqKeyWithBackend,
 } from "../services/api";
-import { maskApiKey } from "../services/settingsStorage";
+import {
+  DEFAULT_TOKEN_BUDGET,
+  maskApiKey,
+} from "../services/settingsStorage";
 import { colors } from "../theme/colors";
 import { useResponsive } from "../theme/responsive";
-import type { AppSettings, GroqModelOption } from "../types";
+import type {
+  AppSettings,
+  GroqModelOption,
+  TokenBudgetMode,
+} from "../types";
 
 interface SettingsModalProps {
   visible: boolean;
@@ -82,6 +90,34 @@ export function SettingsModal({
 
   const [saving, setSaving] = useState(false);
 
+  // Universal Token & Rate-Limit Budget controls
+  const [tokenMode, setTokenMode] = useState<TokenBudgetMode>(
+    settings.tokenBudget?.mode || "balanced"
+  );
+  const [maxInputText, setMaxInputText] = useState(
+    String(
+      settings.tokenBudget?.maxInputTokens ||
+        DEFAULT_TOKEN_BUDGET.maxInputTokens
+    )
+  );
+  const [maxOutputText, setMaxOutputText] = useState(
+    String(
+      settings.tokenBudget?.maxOutputTokens ||
+        DEFAULT_TOKEN_BUDGET.maxOutputTokens
+    )
+  );
+  const [maxHistoryText, setMaxHistoryText] = useState(
+    String(
+      settings.tokenBudget?.maxHistoryTurns ||
+        DEFAULT_TOKEN_BUDGET.maxHistoryTurns
+    )
+  );
+  const [toolPageSizeText, setToolPageSizeText] = useState(
+    String(
+      settings.tokenBudget?.toolPageSize || DEFAULT_TOKEN_BUDGET.toolPageSize
+    )
+  );
+
   useEffect(() => {
     if (visible) {
       setApiKeyInput(settings.groqApiKey);
@@ -90,6 +126,31 @@ export function SettingsModal({
       setSelectedVisionModel(settings.selectedVisionModel);
       setModels(availableModels);
       setShowKey(false);
+      setTokenMode(settings.tokenBudget?.mode || "balanced");
+      setMaxInputText(
+        String(
+          settings.tokenBudget?.maxInputTokens ||
+            DEFAULT_TOKEN_BUDGET.maxInputTokens
+        )
+      );
+      setMaxOutputText(
+        String(
+          settings.tokenBudget?.maxOutputTokens ||
+            DEFAULT_TOKEN_BUDGET.maxOutputTokens
+        )
+      );
+      setMaxHistoryText(
+        String(
+          settings.tokenBudget?.maxHistoryTurns ||
+            DEFAULT_TOKEN_BUDGET.maxHistoryTurns
+        )
+      );
+      setToolPageSizeText(
+        String(
+          settings.tokenBudget?.toolPageSize ||
+            DEFAULT_TOKEN_BUDGET.toolPageSize
+        )
+      );
       setKeyStatus(
         settings.groqApiKey && settings.keyVerified
           ? { type: "success", message: "Key verified & active on this phone." }
@@ -98,6 +159,47 @@ export function SettingsModal({
       setBackendTestMsg({ type: "idle", message: "" });
     }
   }, [visible, settings, availableModels]);
+
+  function buildTokenBudgetPayload() {
+    const parseClamped = (
+      txt: string,
+      fallback: number,
+      min: number,
+      max: number
+    ) => {
+      const n = Number(txt.trim());
+      if (!txt.trim() || Number.isNaN(n)) return fallback;
+      return Math.max(min, Math.min(max, Math.round(n)));
+    };
+
+    return {
+      mode: tokenMode,
+      maxInputTokens: parseClamped(
+        maxInputText,
+        DEFAULT_TOKEN_BUDGET.maxInputTokens,
+        800,
+        20000
+      ),
+      maxOutputTokens: parseClamped(
+        maxOutputText,
+        DEFAULT_TOKEN_BUDGET.maxOutputTokens,
+        256,
+        8192
+      ),
+      maxHistoryTurns: parseClamped(
+        maxHistoryText,
+        DEFAULT_TOKEN_BUDGET.maxHistoryTurns,
+        2,
+        20
+      ),
+      toolPageSize: parseClamped(
+        toolPageSizeText,
+        DEFAULT_TOKEN_BUDGET.toolPageSize,
+        4,
+        25
+      ),
+    };
+  }
 
   const autoUrl = getAutoDetectedBackendUrl();
   const visionModels = models.filter((m) => m.supportsVision);
@@ -169,6 +271,7 @@ export function SettingsModal({
         selectedModel: nextTextModel,
         selectedVisionModel: nextVisModel,
         keyVerified: true,
+        tokenBudget: buildTokenBudgetPayload(),
       },
       nextModels
     );
@@ -211,6 +314,7 @@ export function SettingsModal({
         keyVerified: keyUnchanged
           ? settings.keyVerified && Boolean(cleanKey)
           : Boolean(keyStatus.type === "success" && cleanKey),
+        tokenBudget: buildTokenBudgetPayload(),
       },
       models
     );
@@ -484,6 +588,176 @@ export function SettingsModal({
                   })}
                 </View>
               </>
+            )}
+          </View>
+
+          {/* TOKEN & RATE-LIMIT BUDGET */}
+          <View style={styles.card}>
+            <View style={styles.cardHeaderRow}>
+              <View style={styles.iconBadgeAmber}>
+                <Gauge size={18} color={colors.sage} />
+              </View>
+              <View style={styles.cardHeaderText}>
+                <Text style={styles.cardTitle}>Token & Rate-Limit Budget</Text>
+                <Text style={styles.cardSubtitle}>
+                  Prevents Groq free-tier TPM rate limit spikes
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.modeSegment}>
+              <Pressable
+                onPress={() => setTokenMode("balanced")}
+                style={[
+                  styles.modeSegmentBtn,
+                  tokenMode === "balanced" && styles.modeSegmentBtnActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.modeSegmentText,
+                    tokenMode === "balanced" && styles.modeSegmentTextActive,
+                  ]}
+                >
+                  Balanced (Groq Auto)
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => setTokenMode("custom")}
+                style={[
+                  styles.modeSegmentBtn,
+                  tokenMode === "custom" && styles.modeSegmentBtnActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.modeSegmentText,
+                    tokenMode === "custom" && styles.modeSegmentTextActive,
+                  ]}
+                >
+                  Custom Tokens
+                </Text>
+              </Pressable>
+            </View>
+
+            {tokenMode === "balanced" ? (
+              <View style={[styles.feedbackBox, styles.feedbackSuccess]}>
+                <Text style={[styles.feedbackText, { color: colors.sage }]}>
+                  Auto-tuned for Groq: attaches tools only when needed, caps
+                  input to ~2,800 tokens, dynamically sizes output (640–1,600
+                  tokens), and paginates large lists (8 items/page) with
+                  automatic fast-model failover on 429 limits.
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.customTokensWrap}>
+                <View style={styles.tokenFieldRow}>
+                  <View style={styles.tokenFieldCol}>
+                    <Text style={styles.tokenFieldLabel}>
+                      Max Input Tokens (800–20000)
+                    </Text>
+                    <TextInput
+                      value={maxInputText}
+                      onChangeText={setMaxInputText}
+                      keyboardType="number-pad"
+                      placeholder="2800"
+                      placeholderTextColor={colors.subtle}
+                      style={styles.urlInput}
+                    />
+                  </View>
+
+                  <View style={styles.tokenFieldCol}>
+                    <Text style={styles.tokenFieldLabel}>
+                      Max Output Tokens (256–8192)
+                    </Text>
+                    <TextInput
+                      value={maxOutputText}
+                      onChangeText={setMaxOutputText}
+                      keyboardType="number-pad"
+                      placeholder="1024"
+                      placeholderTextColor={colors.subtle}
+                      style={styles.urlInput}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.tokenFieldRow}>
+                  <View style={styles.tokenFieldCol}>
+                    <Text style={styles.tokenFieldLabel}>
+                      History Turns (2–20)
+                    </Text>
+                    <TextInput
+                      value={maxHistoryText}
+                      onChangeText={setMaxHistoryText}
+                      keyboardType="number-pad"
+                      placeholder="6"
+                      placeholderTextColor={colors.subtle}
+                      style={styles.urlInput}
+                    />
+                  </View>
+
+                  <View style={styles.tokenFieldCol}>
+                    <Text style={styles.tokenFieldLabel}>
+                      Tool Page Size (4–25 items)
+                    </Text>
+                    <TextInput
+                      value={toolPageSizeText}
+                      onChangeText={setToolPageSizeText}
+                      keyboardType="number-pad"
+                      placeholder="8"
+                      placeholderTextColor={colors.subtle}
+                      style={styles.urlInput}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.presetRow}>
+                  {(
+                    [
+                      {
+                        label: "Saver (2k / 512)",
+                        inTok: "2000",
+                        outTok: "512",
+                        hist: "4",
+                        page: "6",
+                      },
+                      {
+                        label: "Standard (3.2k / 1k)",
+                        inTok: "3200",
+                        outTok: "1024",
+                        hist: "6",
+                        page: "8",
+                      },
+                      {
+                        label: "Deep (6k / 2.5k)",
+                        inTok: "6000",
+                        outTok: "2560",
+                        hist: "10",
+                        page: "12",
+                      },
+                    ] as const
+                  ).map((preset) => (
+                    <Pressable
+                      key={preset.label}
+                      onPress={() => {
+                        setMaxInputText(preset.inTok);
+                        setMaxOutputText(preset.outTok);
+                        setMaxHistoryText(preset.hist);
+                        setToolPageSizeText(preset.page);
+                      }}
+                      style={({ pressed }) => [
+                        styles.secondarySmallBtn,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <Text style={styles.secondarySmallBtnText}>
+                        {preset.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
             )}
           </View>
 
@@ -901,6 +1175,59 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
     color: colors.text,
     fontSize: 13.5,
+  },
+  modeSegment: {
+    flexDirection: "row",
+    backgroundColor: colors.sidebar,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 3,
+    gap: 4,
+  },
+  modeSegmentBtn: {
+    flex: 1,
+    height: 36,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modeSegmentBtnActive: {
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.accentBorder,
+  },
+  modeSegmentText: {
+    fontSize: 12.5,
+    fontWeight: "600",
+    color: colors.muted,
+  },
+  modeSegmentTextActive: {
+    color: colors.text,
+    fontWeight: "700",
+  },
+  customTokensWrap: {
+    marginTop: 12,
+    gap: 10,
+  },
+  tokenFieldRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  tokenFieldCol: {
+    flex: 1,
+  },
+  tokenFieldLabel: {
+    fontSize: 11.5,
+    fontWeight: "600",
+    color: colors.textSecondary,
+    marginBottom: 5,
+  },
+  presetRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 2,
   },
   backendBtnRow: {
     flexDirection: "row",

@@ -362,10 +362,19 @@ function FridayWorkspace() {
         ? baseMessages.slice(0, -1)
         : baseMessages;
 
+    const activeBudget = settings.tokenBudget;
+    const historyTurnsCap =
+      activeBudget?.mode === "custom" ? activeBudget.maxHistoryTurns : 6;
+    const perTurnCharCap =
+      activeBudget?.mode === "custom" ? 1800 : 1000;
+
     const history = historyMessages
       .filter((m) => m.content.trim().length > 0)
-      .slice(-12)
-      .map((m) => ({ role: m.role, content: m.content.slice(0, 3000) }));
+      .slice(-historyTurnsCap)
+      .map((m) => ({
+        role: m.role,
+        content: m.content.slice(0, perTurnCharCap),
+      }));
 
     const previousFiles =
       [...historyMessages].reverse().find((m) => m.attachments?.length)
@@ -557,6 +566,7 @@ function FridayWorkspace() {
             enableTools: round < MAX_AGENT_TOOL_ROUNDS - 1,
             model: settings.selectedModel,
             visionModel: settings.selectedVisionModel,
+            tokenBudget: settings.tokenBudget,
           },
           {
             onMeta: (meta) => {
@@ -633,7 +643,14 @@ function FridayWorkspace() {
         );
         patchAssistantMessage({ activeToolLabel: activityLabel });
 
-        const executed = await executeClientToolCalls(pendingRoundToolCalls);
+        const executed = await executeClientToolCalls(pendingRoundToolCalls, {
+          pageSize:
+            settings.tokenBudget?.mode === "custom"
+              ? settings.tokenBudget.toolPageSize
+              : 8,
+          maxClipboardChars:
+            settings.tokenBudget?.mode === "custom" ? 3600 : 1800,
+        });
 
         if (executed.fetchedAttachments.length > 0) {
           contextAttachments = [

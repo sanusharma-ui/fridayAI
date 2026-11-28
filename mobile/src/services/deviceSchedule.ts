@@ -291,9 +291,14 @@ export async function scheduleLocalReminder(input: {
 export async function manageScheduledReminders(input: {
   action: "list" | "cancel_one" | "cancel_all";
   reminderId?: string;
+  limit?: number;
+  offset?: number;
 }): Promise<{
   ok: boolean;
-  count?: number;
+  totalCount?: number;
+  shownCount?: number;
+  hasMore?: boolean;
+  nextOffset?: number | null;
   reminders?: Array<{
     id: string;
     title: string;
@@ -334,6 +339,9 @@ export async function manageScheduledReminders(input: {
       };
     }
 
+    const cleanLimit = Math.max(3, Math.min(20, input.limit || 8));
+    const cleanOffset = Math.max(0, Math.floor(input.offset || 0));
+
     const list = await getAllScheduledNotificationsAsync();
     const mapped = list.map((item) => {
       const trig = item.trigger as Record<string, unknown> | null;
@@ -358,15 +366,21 @@ export async function manageScheduledReminders(input: {
       return {
         id: item.identifier,
         title: item.content.title || "Reminder",
-        body: item.content.body || "",
+        body: (item.content.body || "").slice(0, 120),
         triggerSummary,
       };
     });
 
+    const slice = mapped.slice(cleanOffset, cleanOffset + cleanLimit);
+    const hasMore = cleanOffset + slice.length < mapped.length;
+
     return {
       ok: true,
-      count: mapped.length,
-      reminders: mapped,
+      totalCount: mapped.length,
+      shownCount: slice.length,
+      hasMore,
+      nextOffset: hasMore ? cleanOffset + cleanLimit : null,
+      reminders: slice,
     };
   } catch (err) {
     return {
@@ -525,11 +539,18 @@ export async function readPhoneCalendarEvents(input: {
   startDateIso?: string;
   endDateIso?: string;
   query?: string;
+  limit?: number;
+  offset?: number;
 }): Promise<{
   ok: boolean;
   permission?: "granted" | "denied" | "unavailable";
   rangeStart?: string;
   rangeEnd?: string;
+  totalMatching?: number;
+  shownCount?: number;
+  hasMore?: boolean;
+  nextOffset?: number | null;
+  followUpHint?: string;
   events?: Array<{
     id: string;
     title: string;
@@ -601,8 +622,10 @@ export async function readPhoneCalendarEvents(input: {
 
     const rawEvents = await listEvents(calendars, startDate, endDate);
     const q = (input.query || "").trim().toLowerCase();
+    const cleanLimit = Math.max(3, Math.min(20, input.limit || 8));
+    const cleanOffset = Math.max(0, Math.floor(input.offset || 0));
 
-    const filtered = rawEvents
+    const sortedAll = rawEvents
       .filter((ev) => {
         if (!q) return true;
         const hay = `${ev.title || ""} ${ev.location || ""} ${ev.notes || ""}`.toLowerCase();
@@ -612,8 +635,10 @@ export async function readPhoneCalendarEvents(input: {
         const ta = new Date(a.startDate).getTime();
         const tb = new Date(b.startDate).getTime();
         return ta - tb;
-      })
-      .slice(0, 35)
+      });
+
+    const filtered = sortedAll
+      .slice(cleanOffset, cleanOffset + cleanLimit)
       .map((ev) => ({
         id: ev.id,
         title: ev.title || "(Untitled Event)",
@@ -631,15 +656,26 @@ export async function readPhoneCalendarEvents(input: {
           hour12: true,
         }),
         allDay: Boolean(ev.allDay),
-        location: ev.location || undefined,
-        notes: ev.notes || undefined,
+        ...(ev.location ? { location: ev.location.slice(0, 100) } : {}),
+        ...(ev.notes ? { notes: ev.notes.slice(0, 120) } : {}),
       }));
+
+    const hasMore = cleanOffset + filtered.length < sortedAll.length;
 
     return {
       ok: true,
       permission: "granted",
       rangeStart: formatReadableDateTime(startDate),
       rangeEnd: formatReadableDateTime(endDate),
+      totalMatching: sortedAll.length,
+      shownCount: filtered.length,
+      hasMore,
+      nextOffset: hasMore ? cleanOffset + cleanLimit : null,
+      ...(hasMore
+        ? {
+            followUpHint: `Showing ${cleanOffset + 1}–${cleanOffset + filtered.length} of ${sortedAll.length} events. Present ONLY these and ask if user wants more (offset=${cleanOffset + cleanLimit}).`,
+          }
+        : {}),
       events: filtered,
     };
   } catch (err) {

@@ -5,6 +5,7 @@ import type {
   AgentLoopMessage,
   Attachment,
   GroqModelOption,
+  TokenBudgetConfig,
   ToolCallPayload,
 } from "../types";
 
@@ -142,6 +143,7 @@ export interface SendChatParams {
   enableTools?: boolean;
   model: string;
   visionModel: string;
+  tokenBudget?: TokenBudgetConfig;
 }
 
 export interface SendChatResult {
@@ -184,6 +186,7 @@ export async function sendChatMessage(params: SendChatParams): Promise<SendChatR
           enableTools: params.enableTools,
           model: params.model,
           visionModel: params.visionModel,
+          tokenBudget: params.tokenBudget,
         }),
       },
       95_000
@@ -272,6 +275,7 @@ export async function streamChatMessage(
     enableTools: params.enableTools,
     model: params.model,
     visionModel: params.visionModel,
+    tokenBudget: params.tokenBudget,
   });
 
   let res: Awaited<ReturnType<typeof expoFetch>>;

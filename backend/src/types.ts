@@ -41,6 +41,16 @@ export type AgentLoopMessage =
       content: string;
     };
 
+export type TokenBudgetMode = "balanced" | "custom";
+
+export interface TokenBudgetConfig {
+  mode: TokenBudgetMode;
+  maxInputTokens?: number;
+  maxOutputTokens?: number;
+  maxHistoryTurns?: number;
+  toolPageSize?: number;
+}
+
 export interface ChatRequestBody {
   message?: string;
   history?: ConversationTurn[];
@@ -49,6 +59,7 @@ export interface ChatRequestBody {
   enableTools?: boolean;
   model?: string;
   visionModel?: string;
+  tokenBudget?: TokenBudgetConfig;
 }
 
 export interface GroqModelOption {
