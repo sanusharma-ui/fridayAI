@@ -5,10 +5,10 @@ import {
   ArrowDownLeft,
   ArrowRight,
   ArrowUpRight,
-  CalendarDays,
+  Compass,
   KeyRound,
-  MessageCircle,
   PhoneCall,
+  ScanEye,
   Users,
 } from "lucide-react-native";
 import { colors } from "../theme/colors";
@@ -31,38 +31,40 @@ const BENTO_CARDS = [
     tint: colors.sage,
     tintBg: colors.sageSoft,
     tintBorder: colors.sageBorder,
-    title: "Phonebook Search & Call",
-    subtitle: "Searches real phone contacts",
-    prompt: "Mummy ko call laga do.",
+    title: "Phonebook, Call & WA",
+    subtitle: "Search contacts & message",
+    prompt:
+      "Mummy ko WhatsApp message bana do ki main 10 minute me ghar pahunch raha hoon.",
   },
   {
     icon: AlarmClock,
     tint: colors.accent,
     tintBg: colors.accentSoft,
     tintBorder: colors.accentBorder,
-    title: "Alarms & Reminders",
-    subtitle: "Clock alarms & push alerts",
+    title: "Alarms, Reminders & Cal",
+    subtitle: "Clock, alerts & schedule",
     prompt:
-      "Kal subah 6:30 ka alarm laga do aur 20 minute baad paani peene ka reminder de dena.",
+      "Kal subah 6:30 ka alarm laga do aur aaj mera calendar schedule check karo.",
   },
   {
-    icon: CalendarDays,
-    tint: colors.warning,
-    tintBg: colors.warningBg,
-    tintBorder: colors.warningBorder,
-    title: "Phone Calendar",
-    subtitle: "Check schedule & add events",
-    prompt: "Aaj aur kal mera calendar schedule kya hai?",
-  },
-  {
-    icon: MessageCircle,
+    icon: Compass,
     tint: colors.sky,
     tintBg: colors.skySoft,
     tintBorder: colors.skyBorder,
-    title: "WhatsApp, SMS & UPI",
-    subtitle: "Confirm cards before sending",
+    title: "Maps, Apps & System",
+    subtitle: "Navigate, YouTube, battery",
     prompt:
-      "Rahul ko WhatsApp message bana do ki main 10 minute me pahunch raha hoon.",
+      "Meri battery kitni hai batao aur nearest petrol pump ka Google Maps rasta dikha do.",
+  },
+  {
+    icon: ScanEye,
+    tint: colors.warning,
+    tintBg: colors.warningBg,
+    tintBorder: colors.warningBorder,
+    title: "Latest Screenshot Vision",
+    subtitle: "Reads recent bill / screen",
+    prompt:
+      "Mera latest screenshot padh ke batao usme kya likha hai.",
   },
 ];
 
@@ -105,7 +107,7 @@ export function WelcomeView({
           How can I help today?
         </Text>
         <Text style={styles.subtext}>
-          Search your phonebook, place calls, send WhatsApp/SMS, pay via UPI, or manage hisaab & docs — all from chat.
+          Control calls, WhatsApp, UPI, alarms, calendar, Maps, apps, settings, clipboard & screenshots — all from chat.
         </Text>
       </View>
 

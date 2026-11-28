@@ -23,7 +23,13 @@
           "upi",
           "gpay",
           "phonepe",
-          "paytmmp"
+          "paytmmp",
+          "comgooglemaps",
+          "vnd.youtube",
+          "youtube",
+          "spotify",
+          "googlegmail",
+          "mailto"
         ]
       }
     },
@@ -36,7 +42,8 @@
         "android.permission.WRITE_CALENDAR",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.SCHEDULE_EXACT_ALARM",
-        "com.android.alarm.permission.SET_ALARM"
+        "com.android.alarm.permission.SET_ALARM",
+        "android.permission.READ_MEDIA_IMAGES"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#141615"
@@ -46,6 +53,13 @@
       "expo-secure-store",
       "expo-sqlite",
       "expo-notifications",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Friday to access recent photos and screenshots when requested.",
+          "savePhotosPermission": "Allow Friday to save images to your gallery."
+        }
+      ],
       [
         "expo-calendar",
         {

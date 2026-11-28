@@ -535,4 +535,194 @@ export const FRIDAY_TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "open_maps_navigation",
+      description:
+        "Open Google Maps (or Apple Maps) directly for turn-by-turn navigation or place search (e.g. 'Connaught Place ka rasta dikha', 'Nearest petrol pump search kar', 'Airport ke liye driving navigation chalu kar').",
+      parameters: {
+        type: "object",
+        properties: {
+          destination: {
+            type: "string",
+            description:
+              "Place name, address, landmark, or category (e.g. 'Nearest ATM', 'India Gate New Delhi').",
+          },
+          mode: {
+            type: "string",
+            enum: ["navigate", "search"],
+            description:
+              "'navigate' to start directions/route, 'search' to explore places on the map. Defaults to 'navigate'.",
+          },
+          travelMode: {
+            type: "string",
+            enum: ["driving", "two-wheeler", "walking", "transit"],
+            description: "Travel mode for directions. Defaults to 'driving'.",
+          },
+        },
+        required: ["destination"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "open_app_or_media_search",
+      description:
+        "Launch installed apps on the phone (Swiggy, Zomato, Blinkit, Zepto, Instagram, WhatsApp, GPay, PhonePe, Paytm, Uber, Ola, Rapido, Calculator, Camera, etc.), play/search videos & music on YouTube or Spotify, or open a Google Search / URL in the browser.",
+      parameters: {
+        type: "object",
+        properties: {
+          target: {
+            type: "string",
+            enum: ["youtube", "spotify", "google_search", "open_url", "app"],
+            description:
+              "'youtube' to search/play on YouTube; 'spotify' to search music on Spotify; 'google_search' to search Google in browser; 'open_url' to open a specific URL; 'app' to launch an installed app by name.",
+          },
+          queryOrAppName: {
+            type: "string",
+            description:
+              "Search query (for youtube/spotify/google_search), full https URL (for open_url), or app name like 'Blinkit', 'Zomato', 'Instagram', 'Calculator' (for app).",
+          },
+          packageName: {
+            type: "string",
+            description:
+              "Optional explicit Android package name if known (e.g. 'com.grofers.customerapp').",
+          },
+        },
+        required: ["target", "queryOrAppName"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "prepare_email_draft",
+      description:
+        "Prepare an interactive Email / Gmail Draft confirmation card so the user can review/edit the recipient, subject, and body and open their Mail/Gmail app in 1 tap.",
+      parameters: {
+        type: "object",
+        properties: {
+          toEmail: {
+            type: "string",
+            description:
+              "Recipient email address if known (leave empty string '' if user didn't give an email yet; user can type it on the card).",
+          },
+          recipientName: {
+            type: "string",
+            description:
+              "Optional recipient label (e.g. 'HR Team', 'Manager', 'Rahul').",
+          },
+          subject: {
+            type: "string",
+            description: "Clear, professional email subject line.",
+          },
+          body: {
+            type: "string",
+            description: "Well-written email body text.",
+          },
+        },
+        required: ["subject", "body"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "device_system_controls",
+      description:
+        "Check phone battery percentage & charging status, get or set screen brightness (0-100%), or open specific system Settings screens (Wi-Fi, Bluetooth, Location, Display, Sound, Airplane Mode, Mobile Data, Battery Saver, Storage, Apps).",
+      parameters: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: [
+              "battery_status",
+              "get_brightness",
+              "set_brightness",
+              "restore_auto_brightness",
+              "open_settings",
+            ],
+            description: "Hardware or system action to perform.",
+          },
+          brightnessPercent: {
+            type: "number",
+            description:
+              "Desired brightness percentage (0 to 100) when action is 'set_brightness'.",
+          },
+          settingsPanel: {
+            type: "string",
+            enum: [
+              "main",
+              "wifi",
+              "bluetooth",
+              "location",
+              "display",
+              "sound",
+              "airplane",
+              "mobile_data",
+              "battery_saver",
+              "storage",
+              "apps",
+              "security",
+            ],
+            description:
+              "Which system Settings page to open when action is 'open_settings'.",
+          },
+        },
+        required: ["action"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "clipboard_tool",
+      description:
+        "Read the current text copied in the user's phone clipboard ('Maine abhi jo copy kiya hai usko samjha do / summarize kar do') OR copy text directly to the user's clipboard.",
+      parameters: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: ["read", "copy"],
+            description:
+              "'read' to inspect current clipboard text, 'copy' to write textToCopy into clipboard.",
+          },
+          textToCopy: {
+            type: "string",
+            description: "Text to place on clipboard when action is 'copy'.",
+          },
+        },
+        required: ["action"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "fetch_latest_gallery_image",
+      description:
+        "Fetch the latest screenshot or photo from the user's phone gallery so Friday's Vision model can read and analyze it (e.g. 'Mera last screenshot padh ke batao kitne ka bill hai', 'Meri latest photo dekho').",
+      parameters: {
+        type: "object",
+        properties: {
+          filter: {
+            type: "string",
+            enum: ["screenshot", "any"],
+            description:
+              "'screenshot' when user specifically mentions screenshot/bill screen; 'any' for the most recent photo/image of any kind.",
+          },
+          offset: {
+            type: "number",
+            description:
+              "0 for the very latest image (default), 1 for second latest, etc.",
+          },
+        },
+        required: [],
+      },
+    },
+  },
 ] as const;

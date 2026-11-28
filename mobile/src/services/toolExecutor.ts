@@ -1,4 +1,5 @@
 import type {
+  Attachment,
   MemoryCategory,
   MemoryDirection,
   PendingDeviceAction,
@@ -19,6 +20,13 @@ import {
   scheduleLocalReminder,
   setNativeAlarmOrTimer,
 } from "./deviceSchedule";
+import {
+  executeClipboardTool,
+  executeSystemControl,
+  fetchLatestGalleryImage,
+  openAppOrMediaSearch,
+  openMapsNavigation,
+} from "./deviceSystem";
 
 function makeActionId(): string {
   return `act_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
@@ -58,6 +66,18 @@ export function describeToolActivity(toolName: string): string {
       return "Reading phone calendar…";
     case "prepare_calendar_event":
       return "Preparing calendar event…";
+    case "open_maps_navigation":
+      return "Opening Maps navigation…";
+    case "open_app_or_media_search":
+      return "Launching app / media…";
+    case "prepare_email_draft":
+      return "Preparing email draft…";
+    case "device_system_controls":
+      return "Running device control…";
+    case "clipboard_tool":
+      return "Accessing phone clipboard…";
+    case "fetch_latest_gallery_image":
+      return "Reading latest gallery photo…";
     default:
       return "Running tool…";
   }
@@ -67,6 +87,7 @@ export interface ExecutedToolBatchResult {
   toolOutputs: Array<{ toolCallId: string; outputJson: string }>;
   pendingActions: PendingDeviceAction[];
   badges: ToolBadgeItem[];
+  fetchedAttachments: Attachment[];
 }
 
 export async function executeClientToolCalls(
@@ -75,6 +96,7 @@ export async function executeClientToolCalls(
   const toolOutputs: Array<{ toolCallId: string; outputJson: string }> = [];
   const pendingActions: PendingDeviceAction[] = [];
   const badges: ToolBadgeItem[] = [];
+  const fetchedAttachments: Attachment[] = [];
 
   for (const call of toolCalls) {
     const args = call.arguments || {};
@@ -767,6 +789,223 @@ export async function executeClientToolCalls(
           break;
         }
 
+        case "open_maps_navigation": {
+          const destination =
+            typeof args.destination === "string" ? args.destination : "";
+          const mode: "navigate" | "search" =
+            args.mode === "search" ? "search" : "navigate";
+          const rawTravel =
+            typeof args.travelMode === "string" ? args.travelMode : "driving";
+          const travelMode:
+            | "driving"
+            | "two-wheeler"
+            | "walking"
+            | "transit" =
+            rawTravel === "two-wheeler" ||
+            rawTravel === "walking" ||
+            rawTravel === "transit"
+              ? rawTravel
+              : "driving";
+
+          const res = await openMapsNavigation({
+            destination,
+            mode,
+            travelMode,
+          });
+
+          if (res.ok && res.summary) {
+            badges.push({
+              id: makeActionId(),
+              kind: "system",
+              label: res.summary,
+            });
+          }
+
+          toolOutputs.push({
+            toolCallId: call.id,
+            outputJson: JSON.stringify(res),
+          });
+          break;
+        }
+
+        case "open_app_or_media_search": {
+          const rawTarget =
+            typeof args.target === "string" ? args.target : "app";
+          const target:
+            | "youtube"
+            | "spotify"
+            | "google_search"
+            | "open_url"
+            | "app" =
+            rawTarget === "youtube" ||
+            rawTarget === "spotify" ||
+            rawTarget === "google_search" ||
+            rawTarget === "open_url"
+              ? rawTarget
+              : "app";
+          const queryOrAppName =
+            typeof args.queryOrAppName === "string" ? args.queryOrAppName : "";
+          const packageName =
+            typeof args.packageName === "string" ? args.packageName : undefined;
+
+          const res = await openAppOrMediaSearch({
+            target,
+            queryOrAppName,
+            packageName,
+          });
+
+          if (res.ok && res.summary) {
+            badges.push({
+              id: makeActionId(),
+              kind: "system",
+              label: res.summary,
+            });
+          }
+
+          toolOutputs.push({
+            toolCallId: call.id,
+            outputJson: JSON.stringify(res),
+          });
+          break;
+        }
+
+        case "prepare_email_draft": {
+          const toEmail =
+            typeof args.toEmail === "string" ? args.toEmail.trim() : "";
+          const recipientName =
+            typeof args.recipientName === "string" && args.recipientName.trim()
+              ? args.recipientName.trim()
+              : toEmail || "Email Draft";
+          const subject =
+            typeof args.subject === "string" ? args.subject.trim() : "";
+          const body =
+            typeof args.body === "string" ? args.body.trim() : "";
+
+          const actionCard: PendingDeviceAction = {
+            id: makeActionId(),
+            type: "email",
+            contactName: recipientName,
+            phone: "",
+            email: toEmail,
+            emailSubject: subject,
+            messageBody: body,
+            status: "pending",
+          };
+          pendingActions.push(actionCard);
+
+          toolOutputs.push({
+            toolCallId: call.id,
+            outputJson: JSON.stringify({
+              status: "awaiting_user_confirmation",
+              recipientName,
+              toEmail,
+              subject,
+              note: "An interactive Email Draft card is now displayed on screen. Ask the user to review and tap Open Mail App.",
+            }),
+          });
+          break;
+        }
+
+        case "device_system_controls": {
+          const rawAct =
+            typeof args.action === "string" ? args.action : "battery_status";
+          const action:
+            | "battery_status"
+            | "get_brightness"
+            | "set_brightness"
+            | "restore_auto_brightness"
+            | "open_settings" =
+            rawAct === "get_brightness" ||
+            rawAct === "set_brightness" ||
+            rawAct === "restore_auto_brightness" ||
+            rawAct === "open_settings"
+              ? rawAct
+              : "battery_status";
+
+          const brightnessPercent =
+            typeof args.brightnessPercent === "number"
+              ? args.brightnessPercent
+              : typeof args.brightnessPercent === "string" &&
+                args.brightnessPercent.trim()
+              ? Number(args.brightnessPercent)
+              : undefined;
+          const settingsPanel =
+            typeof args.settingsPanel === "string"
+              ? args.settingsPanel
+              : undefined;
+
+          const res = await executeSystemControl({
+            action,
+            brightnessPercent,
+            settingsPanel,
+          });
+
+          if (res.ok && res.summary) {
+            badges.push({
+              id: makeActionId(),
+              kind: "system",
+              label: res.summary,
+            });
+          }
+
+          toolOutputs.push({
+            toolCallId: call.id,
+            outputJson: JSON.stringify(res),
+          });
+          break;
+        }
+
+        case "clipboard_tool": {
+          const action: "read" | "copy" =
+            args.action === "copy" ? "copy" : "read";
+          const textToCopy =
+            typeof args.textToCopy === "string" ? args.textToCopy : undefined;
+
+          const res = await executeClipboardTool({ action, textToCopy });
+
+          if (res.ok && res.summary) {
+            badges.push({
+              id: makeActionId(),
+              kind: "system",
+              label: res.summary,
+            });
+          }
+
+          toolOutputs.push({
+            toolCallId: call.id,
+            outputJson: JSON.stringify(res),
+          });
+          break;
+        }
+
+        case "fetch_latest_gallery_image": {
+          const filter: "screenshot" | "any" =
+            args.filter === "screenshot" ? "screenshot" : "any";
+          const offset =
+            typeof args.offset === "number" ? args.offset : undefined;
+
+          const res = await fetchLatestGalleryImage({ filter, offset });
+
+          if (res.ok && res.attachment) {
+            fetchedAttachments.push(res.attachment);
+            badges.push({
+              id: makeActionId(),
+              kind: "system",
+              label: res.summary || `Attached ${res.attachment.name}`,
+            });
+          }
+
+          toolOutputs.push({
+            toolCallId: call.id,
+            outputJson: JSON.stringify({
+              ok: res.ok,
+              metadata: res.metadata,
+              error: res.error,
+            }),
+          });
+          break;
+        }
+
         default: {
           toolOutputs.push({
             toolCallId: call.id,
@@ -786,5 +1025,5 @@ export async function executeClientToolCalls(
     }
   }
 
-  return { toolOutputs, pendingActions, badges };
+  return { toolOutputs, pendingActions, badges, fetchedAttachments };
 }

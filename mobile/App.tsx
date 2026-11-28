@@ -370,9 +370,9 @@ function FridayWorkspace() {
     const previousFiles =
       [...historyMessages].reverse().find((m) => m.attachments?.length)
         ?.attachments || [];
-    const contextAttachments = currentAttachments.length
-      ? currentAttachments
-      : previousFiles;
+    let contextAttachments = currentAttachments.length
+      ? [...currentAttachments]
+      : [...previousFiles];
 
     const userMessageId =
       mode === "retry" || mode === "regenerate"
@@ -635,6 +635,33 @@ function FridayWorkspace() {
 
         const executed = await executeClientToolCalls(pendingRoundToolCalls);
 
+        if (executed.fetchedAttachments.length > 0) {
+          contextAttachments = [
+            ...contextAttachments,
+            ...executed.fetchedAttachments,
+          ].slice(0, 3);
+
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id !== targetId) return c;
+              return {
+                ...c,
+                messages: c.messages.map((m) =>
+                  m.id === userMessageId
+                    ? {
+                        ...m,
+                        attachments: [
+                          ...(m.attachments || []),
+                          ...executed.fetchedAttachments,
+                        ].slice(0, 3),
+                      }
+                    : m
+                ),
+              };
+            })
+          );
+        }
+
         if (executed.pendingActions.length > 0) {
           collectedActions = [...collectedActions, ...executed.pendingActions];
         }
@@ -690,6 +717,8 @@ function FridayWorkspace() {
           rawReceivedContent = `**${firstAct.contactName}** ko phonebook me save karne ke liye neeche **Save to Phonebook** tap karein.`;
         } else if (firstAct.type === "calendar_event") {
           rawReceivedContent = `Maine **${firstAct.contactName}** ke liye calendar event card ready kar diya hai. Save karne ke liye **Add to Calendar** tap karein.`;
+        } else if (firstAct.type === "email") {
+          rawReceivedContent = `Maine **${firstAct.contactName}** ke liye email draft ready kar diya hai. Review karke **Open Mail App** tap karein.`;
         } else {
           rawReceivedContent = `Maine **${firstAct.contactName}** ke liye SMS draft tayyar kar diya hai. Review karke **Confirm & Open SMS** tap karein.`;
         }

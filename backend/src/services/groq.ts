@@ -279,7 +279,17 @@ function buildMessagesPayload(params: {
   ];
 
   if (hasImages) {
-    const userContent: unknown[] = [{ type: "text", text: combinedText }];
+    let visionPromptText = combinedText;
+    if (Array.isArray(agentMessages) && agentMessages.length > 0) {
+      const toolNotes = agentMessages
+        .filter((m): m is Extract<AgentLoopMessage, { role: "tool" }> => m.role === "tool")
+        .map((m) => m.content)
+        .join("\n");
+      if (toolNotes) {
+        visionPromptText = `${combinedText}\n\n[Device Tool Context]:\n${toolNotes}`;
+      }
+    }
+    const userContent: unknown[] = [{ type: "text", text: visionPromptText }];
     for (const url of imageDataUrls) {
       userContent.push({
         type: "image_url",
@@ -289,10 +299,9 @@ function buildMessagesPayload(params: {
     messages.push({ role: "user", content: userContent });
   } else {
     messages.push({ role: "user", content: combinedText });
-  }
-
-  if (Array.isArray(agentMessages) && agentMessages.length > 0) {
-    messages.push(...agentMessages);
+    if (Array.isArray(agentMessages) && agentMessages.length > 0) {
+      messages.push(...agentMessages);
+    }
   }
 
   return { chosenModel, hasImages, messages };

@@ -14,6 +14,7 @@ import {
   CalendarPlus,
   Check,
   IndianRupee,
+  Mail,
   MessageCircle,
   MessageSquareText,
   PhoneCall,
@@ -68,6 +69,10 @@ export function ActionConfirmCard({
   const [contactPhoneText, setContactPhoneText] = useState(action.phone || "");
   const [calLocationText, setCalLocationText] = useState(
     action.location || ""
+  );
+  const [emailToText, setEmailToText] = useState(action.email || "");
+  const [emailSubjectText, setEmailSubjectText] = useState(
+    action.emailSubject || ""
   );
   const [busy, setBusy] = useState(false);
 
@@ -283,6 +288,38 @@ export function ActionConfirmCard({
       });
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleConfirmEmail() {
+    const cleanTo = emailToText.trim();
+    const cleanSubject = emailSubjectText.trim();
+    const cleanBody = draftBody.trim();
+
+    const params: string[] = [];
+    if (cleanSubject) {
+      params.push(`subject=${encodeURIComponent(cleanSubject)}`);
+    }
+    if (cleanBody) {
+      params.push(`body=${encodeURIComponent(cleanBody)}`);
+    }
+
+    const queryPart = params.length > 0 ? `?${params.join("&")}` : "";
+    const mailtoUrl = `mailto:${encodeURIComponent(cleanTo)}${queryPart}`;
+
+    try {
+      await Linking.openURL(mailtoUrl);
+      onUpdateAction(action.id, {
+        status: "confirmed",
+        email: cleanTo,
+        emailSubject: cleanSubject,
+        messageBody: cleanBody,
+      });
+    } catch {
+      Alert.alert(
+        "Could Not Open Mail App",
+        "No default email client (Gmail/Mail) could be opened on this device."
+      );
     }
   }
 
@@ -757,6 +794,133 @@ export function ActionConfirmCard({
               </>
             )}
           </View>
+        )}
+      </View>
+    );
+  }
+
+  // 4C. EMAIL / GMAIL DRAFT CARD
+  if (action.type === "email") {
+    return (
+      <View
+        style={[
+          styles.card,
+          styles.contactBorder,
+          action.status === "cancelled" && styles.cardCancelled,
+        ]}
+      >
+        <View style={styles.headerRow}>
+          <View style={styles.contactIconWrap}>
+            <Mail size={18} color={colors.accent} />
+          </View>
+          <View style={styles.headerTextWrap}>
+            <Text style={styles.contactTag}>Email Draft</Text>
+            <Text style={styles.contactTitle}>{action.contactName}</Text>
+            {action.email || emailToText ? (
+              <Text style={styles.phoneText}>
+                {action.email || emailToText}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+
+        {isPending ? (
+          <>
+            <View style={styles.upiInputsRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fieldLabel}>To (Email)</Text>
+                <TextInput
+                  value={emailToText}
+                  onChangeText={setEmailToText}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  placeholder="recipient@example.com"
+                  placeholderTextColor={colors.subtle}
+                  style={styles.compactInput}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fieldLabel}>Subject</Text>
+                <TextInput
+                  value={emailSubjectText}
+                  onChangeText={setEmailSubjectText}
+                  placeholder="Subject line"
+                  placeholderTextColor={colors.subtle}
+                  style={styles.compactInput}
+                />
+              </View>
+            </View>
+
+            <TextInput
+              value={draftBody}
+              onChangeText={setDraftBody}
+              multiline
+              style={styles.smsInput}
+              placeholder="Edit email body…"
+              placeholderTextColor={colors.subtle}
+            />
+
+            <View style={styles.btnRow}>
+              <Pressable
+                onPress={handleConfirmEmail}
+                style={({ pressed }) => [
+                  styles.contactConfirmBtn,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Mail size={15} color="#FFFFFF" />
+                <Text style={styles.contactConfirmText}>Open Mail App</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={handleCancel}
+                style={({ pressed }) => [
+                  styles.cancelBtn,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <X size={15} color={colors.muted} />
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </Pressable>
+            </View>
+          </>
+        ) : (
+          <>
+            <View style={styles.readonlyDraftBox}>
+              {action.emailSubject || emailSubjectText ? (
+                <Text
+                  style={[
+                    styles.readonlyDraftText,
+                    { fontWeight: "700", color: colors.text, marginBottom: 4 },
+                  ]}
+                >
+                  {action.emailSubject || emailSubjectText}
+                </Text>
+              ) : null}
+              <Text style={styles.readonlyDraftText}>
+                {action.messageBody || draftBody}
+              </Text>
+            </View>
+            <View style={styles.statusFooter}>
+              {isConfirmed ? (
+                <>
+                  <Check size={14} color={colors.sage} />
+                  <Text
+                    style={[styles.statusFooterText, { color: colors.sage }]}
+                  >
+                    Opened in Mail App
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <X size={14} color={colors.muted} />
+                  <Text style={styles.statusFooterText}>
+                    Email draft cancelled
+                  </Text>
+                </>
+              )}
+            </View>
+          </>
         )}
       </View>
     );
